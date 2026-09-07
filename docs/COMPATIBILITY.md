@@ -1,13 +1,13 @@
 # 兼容性与升级边界
 
-本文件定义 `kikoeru-strm-plugin` `0.1.0` 的可验证兼容范围。它不是对任意
+本文件定义 `kikoeru-strm-plugin` `0.1.1` 的可验证兼容范围。它不是对任意
 Kikoeru 版本、任意 STRM 格式或任意 CDN 的承诺。
 
 ## 固定基线
 
-| 项目 | `0.1.0` 固定值 |
+| 项目 | `0.1.1` 固定值 |
 | --- | --- |
-| 适配器版本 | `0.1.0` |
+| 适配器版本 | `0.1.1` |
 | 上游应用版本 | `number17/kikoeru` `0.6.15` |
 | 上游镜像引用 | `number17/kikoeru@sha256:e934185b734b35e15fcdf62d96e65445edb1979ba0ed25d23d08679abda65c1c` |
 | 上游 digest | `sha256:e934185b734b35e15fcdf62d96e65445edb1979ba0ed25d23d08679abda65c1c` |
@@ -36,7 +36,7 @@ worker fork 和前端注入入口；精确文件清单及 SHA-256 以该脚本�
 | `/api/lyric/translate/:id/:index` | JWT | STRM 明确拒绝 AI 翻译入口 |
 | `/api/admin/strm`、`/api/strm/status`、`/api/strm/config` | JWT + admin | 查看状态/配置；状态中不返回完整 URL、query 或 CDN Location |
 | `/api/admin/strm/cleanup` | JWT + admin | 仅清理适配器缓存和孤儿 `.part` |
-| `/admin/strm`、`/admin/strm-menu.js` | 未保护静态壳 | 只提供同源管理页面/菜单脚本；实际状态读取和写入仍需要 admin JWT |
+| `/admin/strm`、`/admin/strm-menu.js` | 未保护静态壳 | 提供融入原生 Dashboard 视觉/导航的同源 STRM 设置页和菜单脚本；实际状态读取和写入仍需要 admin JWT |
 
 这里的“未保护”只针对健康检查或静态壳；不要把它理解为媒体公开访问。除表中
 明确列出的例外外，`/api` 路由都应在启用鉴权的独立实例上携带有效 JWT。

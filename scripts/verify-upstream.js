@@ -16,6 +16,7 @@ const EXPECTED = Object.freeze({
   'dist/src/database/db.js': '5c664ff756da4999fc2b51fcf8e6a78e1bcb7293a10f270c6d25450aaae2cf67',
   'dist/src/socket.js': 'bab0706d740042209a9d28b1cddc37a1ddfb2573a9c1d5aefd00b1ccee5b4dc0',
   'dist/src/public/index.html': 'f375147af8a799a403aeef6d90a0841984e7a4ee1e48743d841458f7d71c134d',
+  'dist/src/public/css/app.ab4be0f1.css': '65d7f1b89ac5e96600cc157c2a7c58cc7c82842419865c5e77fd6b494cdaa4a2',
   'dist/src/public/js/app.1579a05e.js': '5b9d4c6b7fc1a4445e6b1dcdcd64d67b48ee2d7e552e1b4416dc4c105826789a',
   'dist/src/app.js': '59e7074714063e460ddb880d7001e01bc4ef9903ae7217916ec3d1f9fcf9bff8',
 });

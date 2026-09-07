@@ -1,6 +1,6 @@
 # 独立 STRM 实例运维
 
-本文针对发布 `0.1.0`。项目是 `number17/kikoeru` `0.6.15` 的版本化 overlay，
+本文针对发布 `0.1.1`。项目是 `number17/kikoeru` `0.6.15` 的版本化 overlay，
 只管理独立 compose 项目 `kikoeru-strm`：容器 `kikoeru-strm-12346`，宿主端口
 `12346`。生产容器 `kikoeru` 使用的 `12345`、配置、SQLite、FUSE 原件和媒体数据
 不属于本项目，任何操作都不得触碰它们。
@@ -34,7 +34,7 @@ read -r -p 'Helper host[:port] (keep private): ' STRM_HELPER_HOST
   --media /media/MP_movieDB/NSFW/Voice1 \
   --helper "$STRM_HELPER_HOST" \
   --port 12346 \
-  --image kikoeru-strm:0.1.0
+  --image kikoeru-strm:0.1.1
 unset STRM_HELPER_HOST
 ```
 
@@ -86,7 +86,10 @@ docker inspect kikoeru-strm-12346 --format '{{.Config.Image}}'
 5. 查看脱敏日志和状态页，确认没有 Helper URL、CDN `Location`、query、JWT、
    Cookie 或密码。
 
-管理页可从登录后的 `/admin/strm` 打开；状态和写操作 API 均要求管理员 JWT：
+STRM 设置已融入 Kikoeru 原生 Dashboard 的视觉和导航；登录后从原生管理后台的
+“STRM 设置”入口进入 `/admin/strm`。缓存容量按 GiB 展示，保存超过上限的配置时会
+显示明确提示。核心媒体扫描、缓存、响度和交付行为在本版本冻结。状态和写操作 API
+均要求管理员 JWT：
 
 ```text
 GET  /api/admin/strm
@@ -117,7 +120,7 @@ cp -a deploy/runtime/config deploy/runtime/sqlite deploy/runtime/covers "$backup
 ```sh
 ./scripts/manage.sh upgrade
 # 若要切换到已经存在的本地镜像：
-./scripts/manage.sh upgrade --image kikoeru-strm:0.1.0
+./scripts/manage.sh upgrade --image kikoeru-strm:0.1.1
 docker compose ps
 curl -fsS http://127.0.0.1:12346/api/health
 ```

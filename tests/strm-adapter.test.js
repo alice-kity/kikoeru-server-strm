@@ -877,12 +877,258 @@ test('admin UI exposes a same-origin STRM settings entry without credentials in 
   assert.match(MENU_SCRIPT, /STRM 设置/);
   assert.match(MENU_SCRIPT, /admin\/advanced/);
   assert.match(MENU_SCRIPT, /admin\/strm/);
+  assert.match(MENU_SCRIPT, /admin\/strm-fragment/);
   assert.doesNotMatch(MENU_SCRIPT, /position:fixed;right:16px;bottom:16px/);
   assert.doesNotThrow(() => new vm.Script(MENU_SCRIPT));
   const response = { statusCode: 0, headers: {}, body: '', setHeader(k, v) { this.headers[k] = v; }, end(v) { this.body = String(v || ''); } };
   createAdminUiMiddleware()({ method: 'GET', url: '/admin/strm' }, response, () => { throw new Error('page should be handled'); });
   assert.equal(response.statusCode, 200);
   assert.match(response.body, /STRM 设置/);
+});
+
+test('admin UI serves direct and trailing-slash routes while preserving middleware fallthrough', () => {
+  const middleware = createAdminUiMiddleware();
+  for (const url of ['/admin/strm', '/admin/strm/', '/admin/strm?from=dashboard', '/admin/strm-fragment', '/admin/strm-fragment/']) {
+    const response = { statusCode: 0, headers: {}, body: '', setHeader(k, v) { this.headers[k] = v; }, end(v) { this.body = String(v || ''); } };
+    let nextCalled = false;
+    middleware({ method: 'GET', url }, response, () => { nextCalled = true; });
+    assert.equal(response.statusCode, 200);
+    assert.equal(nextCalled, false);
+    assert.equal(response.headers['Cache-Control'], 'no-store');
+    assert.match(response.headers['Content-Type'], /text\/html/);
+    assert.match(response.body, /q-layout--standard/);
+    assert.match(response.body, /q-drawer/);
+    assert.match(response.body, /q-page-container/);
+  }
+  let fallthrough = 0;
+  middleware({ method: 'POST', url: '/admin/strm' }, {}, () => { fallthrough += 1; });
+  assert.equal(fallthrough, 1);
+});
+
+test('admin UI has the native dashboard shell, active STRM route and binary cache units', () => {
+  assert.match(ADMIN_HTML, /class="q-layout q-layout--standard"/);
+  assert.match(ADMIN_HTML, /class="q-header q-layout__section--marginal bg-black absolute-top"/);
+  assert.match(ADMIN_HTML, /class="q-drawer q-drawer--left"/);
+  assert.match(ADMIN_HTML, /class="q-page-container"/);
+  assert.match(ADMIN_HTML, /data-strm-nav href="\/admin\/scanner"/);
+  assert.match(ADMIN_HTML, /data-strm-nav href="\/admin\/advanced"/);
+  assert.match(ADMIN_HTML, /data-strm-nav href="\/admin\/strm" aria-current="page"/);
+  assert.match(ADMIN_HTML, /KiB/);
+  assert.match(ADMIN_HTML, /MiB/);
+  assert.match(ADMIN_HTML, /GiB/);
+  assert.match(ADMIN_HTML, /TiB/);
+  assert.match(ADMIN_HTML, /id="cacheUsage"/);
+  assert.match(ADMIN_HTML, /id="cacheLimit"/);
+  assert.match(ADMIN_HTML, /id="cacheState"/);
+  assert.match(ADMIN_HTML, /已超限/);
+  assert.match(MENU_SCRIPT, /preventDefault/);
+  assert.match(MENU_SCRIPT, /pushState/);
+  assert.match(MENU_SCRIPT, /popstate/);
+  assert.match(MENU_SCRIPT, /data-kikoeru-strm-view/);
+});
+
+class AdminUiFakeClassList {
+  constructor(value = '') { this.values = new Set(String(value).split(/\s+/).filter(Boolean)); }
+  add(...values) { values.forEach(value => this.values.add(value)); }
+  remove(...values) { values.forEach(value => this.values.delete(value)); }
+  toggle(value, force) { const shouldAdd = force === undefined ? !this.values.has(value) : Boolean(force); if (shouldAdd) this.values.add(value); else this.values.delete(value); return shouldAdd; }
+  contains(value) { return this.values.has(value); }
+  toString() { return Array.from(this.values).join(' '); }
+}
+
+class AdminUiFakeElement {
+  constructor(tagName = 'div', attrs = {}, textContent = '') {
+    this.tagName = String(tagName).toUpperCase();
+    this.attrs = Object.assign({}, attrs);
+    this.children = [];
+    this.parentNode = null;
+    this.listeners = {};
+    this.style = { display: '' };
+    this.classList = new AdminUiFakeClassList(this.attrs.class || '');
+    this.textContent = textContent;
+    this.innerHTML = '';
+    this.value = '';
+    this.checked = false;
+  }
+  get nextSibling() {
+    if (!this.parentNode) return null;
+    const index = this.parentNode.children.indexOf(this);
+    return index < 0 ? null : this.parentNode.children[index + 1] || null;
+  }
+  setAttribute(name, value) { this.attrs[name] = String(value); if (name === 'class') this.classList = new AdminUiFakeClassList(value); }
+  getAttribute(name) { return Object.hasOwn(this.attrs, name) ? this.attrs[name] : null; }
+  removeAttribute(name) { delete this.attrs[name]; }
+  appendChild(child) { if (child.parentNode) child.parentNode.removeChild(child); child.parentNode = this; this.children.push(child); return child; }
+  insertBefore(child, before) { if (child.parentNode) child.parentNode.removeChild(child); child.parentNode = this; const index = before ? this.children.indexOf(before) : -1; if (index < 0) this.children.push(child); else this.children.splice(index, 0, child); return child; }
+  removeChild(child) { const index = this.children.indexOf(child); if (index >= 0) { this.children.splice(index, 1); child.parentNode = null; } return child; }
+  cloneNode(deep = false) { const clone = new AdminUiFakeElement(this.tagName, this.attrs, this.textContent); clone.value = this.value; clone.checked = this.checked; if (deep) this.children.forEach(child => clone.appendChild(child.cloneNode(true))); return clone; }
+  addEventListener(type, handler) { (this.listeners[type] ||= []).push(handler); }
+  dispatch(type, event = {}) { for (const handler of (this.listeners[type] || []).slice()) handler(event); }
+  querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
+  querySelectorAll(selector) {
+    const result = [];
+    const matches = node => {
+      if (selector === '*') return true;
+      if (selector === 'audio,video') return node.tagName === 'AUDIO' || node.tagName === 'VIDEO';
+      if (selector === '.q-page-container') return node.classList.contains('q-page-container');
+      if (selector === '.q-page') return node.classList.contains('q-page');
+      if (selector === '[data-kikoeru-strm-menu]') return node.getAttribute('data-kikoeru-strm-menu') === 'true';
+      if (selector === '[data-kikoeru-strm-runtime]') return node.getAttribute('data-kikoeru-strm-runtime') === 'true';
+      if (selector === '[data-kikoeru-strm-view]') return node.getAttribute('data-kikoeru-strm-view') === 'true';
+      if (selector === 'style[data-kikoeru-strm-style]') return node.tagName === 'STYLE' && node.getAttribute('data-kikoeru-strm-style') === 'true';
+      if (selector === '[data-strm-nav]') return node.getAttribute('data-strm-nav') !== null;
+      if (selector === 'a[href="/admin/advanced"]' || selector === '[href="/admin/advanced"]') return node.getAttribute('href') === '/admin/advanced';
+      if (selector === '.q-item__section--main, .q-item__label') return node.classList.contains('q-item__section--main') || node.classList.contains('q-item__label');
+      return false;
+    };
+    const visit = node => { node.children.forEach(child => { if (matches(child)) result.push(child); visit(child); }); };
+    visit(this);
+    return result;
+  }
+}
+
+function makeAdminUiMenuFixture() {
+  const body = new AdminUiFakeElement('body');
+  const head = new AdminUiFakeElement('head');
+  const container = new AdminUiFakeElement('div', { class: 'q-page-container' });
+  const oldPage = new AdminUiFakeElement('form', { class: 'q-form' }, 'native page');
+  const nav = new AdminUiFakeElement('nav');
+  const advanced = new AdminUiFakeElement('a', { href: '/admin/advanced', class: 'q-item' });
+  advanced.appendChild(new AdminUiFakeElement('span', { class: 'q-item__section--main' }, '高级设置'));
+  nav.appendChild(new AdminUiFakeElement('a', { href: '/admin' }, '音声库'));
+  nav.appendChild(advanced);
+  nav.appendChild(new AdminUiFakeElement('a', { href: '/' }, '回到主页'));
+  body.appendChild(head);
+  body.appendChild(nav);
+  container.appendChild(oldPage);
+  body.appendChild(container);
+  const popstate = [];
+  const window = {
+    location: { href: 'http://fixture.test/admin', pathname: '/admin', origin: 'http://fixture.test' },
+    history: { pushes: [], pushState(state, title, url) { this.pushes.push({ state, title, url }); window.location.pathname = url; window.location.href = `http://fixture.test${url}`; } },
+    addEventListener(type, handler) { if (type === 'popstate') popstate.push(handler); },
+    localStorage: { getItem() { return 'fixture-token'; } },
+    fetches: [],
+    fetch(url) { this.fetches.push(url); return Promise.resolve({ ok: true, text: () => Promise.resolve(ADMIN_HTML) }); },
+  };
+  const document = {
+    readyState: 'complete', body, head, documentElement: body,
+    createElement(tagName) { return new AdminUiFakeElement(tagName); },
+    querySelector(selector) { return body.querySelector(selector); },
+    querySelectorAll(selector) { return body.querySelectorAll(selector); },
+    addEventListener() {},
+  };
+  class FakeParser {
+    parseFromString() {
+      const source = new AdminUiFakeElement('main', { id: 'strm-admin-content' });
+      source.innerHTML = '<section data-fixture="strm"></section>';
+      const script = new AdminUiFakeElement('script', { 'data-strm-admin-script': 'true' });
+      script.textContent = '';
+      const style = new AdminUiFakeElement('style', { 'data-strm-admin-style': 'true' }, '.q-page{color:red}');
+      return { querySelector(selector) { return selector === '#strm-admin-content' ? source : selector === 'script[data-strm-admin-script]' ? script : selector === 'style[data-strm-admin-style]' ? style : null; } };
+    }
+  }
+  return { body, head, container, oldPage, advanced, window, document, popstate, DOMParser: FakeParser };
+}
+
+test('injected dashboard menu click mounts STRM into q-page and popstate restores the native page', async () => {
+  const fixture = makeAdminUiMenuFixture();
+  const context = vm.createContext(Object.assign({ URL, DOMParser: fixture.DOMParser, MutationObserver: class { observe() {} }, setTimeout() { return 1; }, clearTimeout() {}, window: fixture.window, document: fixture.document, localStorage: fixture.window.localStorage }, fixture.window));
+  new vm.Script(MENU_SCRIPT).runInContext(context);
+  const entry = fixture.body.querySelector('[data-kikoeru-strm-menu]');
+  assert.ok(entry, 'STRM entry is cloned into the native menu');
+  const event = { button: 0, prevented: false, preventDefault() { this.prevented = true; } };
+  entry.dispatch('click', event);
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(event.prevented, true);
+  assert.deepEqual(fixture.window.history.pushes.map(push => push.url), ['/admin/strm']);
+  assert.deepEqual(fixture.window.fetches, ['/admin/strm-fragment']);
+  assert.equal(fixture.body.querySelectorAll('[data-kikoeru-strm-view]').length, 1);
+  const mountedView = fixture.container.children.find(child => child.getAttribute('data-kikoeru-strm-view') === 'true');
+  assert.ok(mountedView);
+  assert.equal(mountedView.getAttribute('id'), 'strm-admin-content', 'mounted runtime keeps its root id');
+  assert.equal(fixture.head.querySelectorAll('style[data-kikoeru-strm-style]').length, 1, 'custom STRM CSS is mounted into the native document head');
+  assert.equal(fixture.oldPage.style.display, 'none');
+  assert.equal(entry.getAttribute('aria-current'), 'page');
+  fixture.window.location.pathname = '/admin/advanced';
+  fixture.popstate.forEach(handler => handler({ type: 'popstate' }));
+  assert.equal(fixture.body.querySelectorAll('[data-kikoeru-strm-view]').length, 0);
+  assert.equal(fixture.oldPage.style.display, '');
+  assert.equal(entry.getAttribute('aria-current'), null);
+});
+
+test('SPA boot at /admin/strm uses the non-navigation fragment route for SW-safe direct refresh', async () => {
+  const fixture = makeAdminUiMenuFixture();
+  fixture.window.location.pathname = '/admin/strm';
+  const context = vm.createContext(Object.assign({ URL, DOMParser: fixture.DOMParser, MutationObserver: class { observe() {} }, setTimeout() { return 1; }, clearTimeout() {}, window: fixture.window, document: fixture.document, localStorage: fixture.window.localStorage }, fixture.window));
+  new vm.Script(MENU_SCRIPT).runInContext(context);
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(fixture.window.fetches, ['/admin/strm-fragment']);
+  const mountedView = fixture.container.children.find(child => child.getAttribute('data-kikoeru-strm-view') === 'true');
+  assert.ok(mountedView);
+  assert.equal(mountedView.getAttribute('id'), 'strm-admin-content');
+  assert.equal(fixture.oldPage.style.display, 'none');
+});
+
+test('STRM admin runtime loads config and keeps save/cleanup API contracts', async () => {
+  const ids = ['status', 'metrics', 'rawMetrics', 'enabled', 'redirectMode', 'preloadMode', 'detectHead', 'redirectCacheTtlMs', 'coldCacheEnabled', 'maxTotalBytes', 'maxFileBytes', 'maxVideoBytes', 'maxAgeMs', 'loudnessEnabled', 'loudnessAudioOnly', 'loudnessMethod', 'cacheUsage', 'cacheLimit', 'cacheState', 'cacheProgress', 'refresh', 'save', 'cleanup', 'message'];
+  const elements = new Map(ids.map(id => [id, new AdminUiFakeElement('input', { id })]));
+  const root = new AdminUiFakeElement('main', { id: 'strm-admin-content', class: 'q-page' });
+  const body = new AdminUiFakeElement('body');
+  body.appendChild(root);
+  const document = {
+    body, documentElement: body,
+    getElementById(id) { return id === 'strm-admin-content' ? root : elements.get(id) || null; },
+    querySelectorAll() { return []; },
+  };
+  const status = { enabled: true, cacheBytes: 3 * 1024 * 1024, records: [{ id: 1 }], config: { redirectMode: 'local', preloadGuard: { mode: 'observe', detectHead: true }, redirectResolve: { cacheTtlMs: 12000 }, coldCache: { enabled: true, maxTotalBytes: 4 * 1024 * 1024, maxFileBytes: 5 * 1024 * 1024, maxVideoBytes: 6 * 1024 * 1024, maxAgeMs: 7 * 24 * 60 * 60 * 1000 }, loudness: { enabled: true, audioOnly: false, method: 'ebur128' } }, queue: {}, redirect: {}, metrics: {} };
+  const calls = [];
+  const response = data => ({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(data)) });
+  const window = {
+    location: { pathname: '/admin/strm' },
+    localStorage: { getItem(key) { return key === 'jwt-token' ? '__q_strn|fixture-jwt' : null; } },
+    fetch(url, options) { calls.push({ url, options }); return Promise.resolve(response(status)); },
+    addEventListener() {}, confirm() { return true; },
+  };
+  const context = vm.createContext({ window, document, localStorage: window.localStorage, fetch: window.fetch.bind(window), Promise, Object, Number, String, Boolean, JSON });
+  const runtime = ADMIN_HTML.match(/<script data-strm-admin-script>([\s\S]*?)<\/script>/)[1];
+  new vm.Script(runtime).runInContext(context);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(window.__kikoeruStrmAdminRuntime.root, root);
+  assert.equal(calls[0].url, '/api/strm/status');
+  assert.match(elements.get('status').innerHTML, /已连接/);
+  assert.equal(elements.get('maxTotalBytes').value, '0.004');
+  assert.equal(elements.get('redirectCacheTtlMs').value, '12');
+  assert.equal(elements.get('cacheUsage').textContent, '3.00 MiB');
+  assert.equal(elements.get('cacheLimit').textContent, '4.00 MiB');
+  assert.equal(elements.get('cacheState').textContent, '正常');
+
+  elements.get('enabled').checked = false;
+  elements.get('redirectMode').value = 'direct';
+  elements.get('preloadMode').value = 'short-circuit';
+  elements.get('detectHead').checked = false;
+  elements.get('redirectCacheTtlMs').value = '8';
+  elements.get('coldCacheEnabled').checked = true;
+  elements.get('maxTotalBytes').value = '2.5';
+  elements.get('maxFileBytes').value = '10';
+  elements.get('maxVideoBytes').value = '12';
+  elements.get('maxAgeMs').value = '3';
+  elements.get('loudnessEnabled').checked = false;
+  elements.get('loudnessAudioOnly').checked = true;
+  elements.get('loudnessMethod').value = 'loudnorm';
+  await elements.get('save').onclick();
+  const saveCall = calls.find(call => call.options && call.options.method === 'PUT');
+  assert.ok(saveCall);
+  assert.equal(saveCall.url, '/api/admin/strm');
+  assert.equal(saveCall.options.headers.Authorization, 'Bearer fixture-jwt');
+  assert.equal(saveCall.options.headers['Content-Type'], 'application/json');
+  assert.deepEqual(JSON.parse(saveCall.options.body), { enabled: false, redirectMode: 'direct', preloadGuard: { mode: 'short-circuit', detectHead: false }, redirectResolve: { cacheTtlMs: 8000 }, coldCache: { enabled: true, maxTotalBytes: 2.5 * 1024 * 1024 * 1024, maxFileBytes: 10 * 1024 * 1024, maxVideoBytes: 12 * 1024 * 1024, maxAgeMs: 3 * 24 * 60 * 60 * 1000 }, loudness: { enabled: false, audioOnly: true, method: 'loudnorm' } });
+  await elements.get('cleanup').onclick();
+  const cleanupCall = calls.find(call => call.options && call.options.method === 'POST');
+  assert.ok(cleanupCall);
+  assert.equal(cleanupCall.url, '/api/admin/strm/cleanup');
 });
 
 test('STRM media recovery waits through pauses and reloads one stalled long-pause stream', () => {
