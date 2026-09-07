@@ -1,0 +1,27 @@
+# Local upstream extracts, runtime state, credentials, backups and media.
+tmp
+deploy/runtime
+.env
+.env.*
+!.env.example
+.env.*.bak
+.env.install.*
+.git
+**/.git
+node_modules
+**/node_modules
+*.sqlite
+*.sqlite3
+*.db
+*.db-*
+*.bak
+*.backup
+*.log
+*.part
+*.flac
+*.wav
+*.mp3
+*.mp4
+**/backups
+**/*backup*
+sol-luna-taskflow.tar.gz

@@ -1,0 +1,56 @@
+'use strict';
+
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+
+const EXPECTED_VERSION = '0.6.15';
+const EXPECTED = Object.freeze({
+  'dist/src/filesystem/utils.js': 'e4d4af382e0e5221a5370ac16e6a51a0a6bda34ee6dddebe5911b93b9407d6e7',
+  'dist/src/filesystem/scanner.js': '01f32be8422444cfad91a2495e35b748d6121256d9972ff99eb31bc7d0e6f881',
+  'dist/src/filesystem/workFileScanner.js': '2ea04791bf11ae1e38d8306fc4940f22bcd85a6142e00c6d7d58135bc8180f1b',
+  'dist/src/routes/media.js': '803284fe7388b51d56099955cff4a698824ed789dc0fb4ed9a24d80762c49f1d',
+  'dist/src/routes/index.js': '912ee0779fd737d095b6e7258ddf9a5f9525ab53256e3d4a559881e05439f69a',
+  'dist/src/config.js': 'a77c47dbae7092f2ac90fabdf48504a6a297cb50091c84a922bbb930d35e9417',
+  'dist/src/auth/utils.js': '56d8e1e74efc5bd35ed3f09722b4df80d8c25e5cdb15f2f2a7a7f51b89098516',
+  'dist/src/database/db.js': '5c664ff756da4999fc2b51fcf8e6a78e1bcb7293a10f270c6d25450aaae2cf67',
+  'dist/src/socket.js': 'bab0706d740042209a9d28b1cddc37a1ddfb2573a9c1d5aefd00b1ccee5b4dc0',
+  'dist/src/public/index.html': 'f375147af8a799a403aeef6d90a0841984e7a4ee1e48743d841458f7d71c134d',
+  'dist/src/public/js/app.1579a05e.js': '5b9d4c6b7fc1a4445e6b1dcdcd64d67b48ee2d7e552e1b4416dc4c105826789a',
+  'dist/src/app.js': '59e7074714063e460ddb880d7001e01bc4ef9903ae7217916ec3d1f9fcf9bff8',
+});
+
+function sha256(filePath) {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
+
+function verify(rootDir) {
+  const root = path.resolve(rootDir || process.cwd());
+  const packagePaths = [path.join(root, 'dist/package.json'), path.join(root, 'package.json')];
+  const packagePath = packagePaths.find(filePath => fs.existsSync(filePath));
+  if (!packagePath) throw new Error('upstream package.json was not found');
+  const version = JSON.parse(fs.readFileSync(packagePath, 'utf8')).version;
+  if (version !== EXPECTED_VERSION) throw new Error(`unsupported Kikoeru version: ${version}; expected ${EXPECTED_VERSION}`);
+  for (const [relative, expected] of Object.entries(EXPECTED)) {
+    const filePath = path.join(root, relative);
+    if (!fs.existsSync(filePath)) throw new Error(`required upstream file is missing: ${relative}`);
+    const actual = sha256(filePath);
+    if (actual !== expected) {
+      throw new Error(`upstream fingerprint mismatch for ${relative}: ${actual} (expected ${expected})`);
+    }
+  }
+  if (!fs.existsSync(path.join(root, 'dist/src/app.js'))) throw new Error('upstream entry point is missing');
+  return { version, fingerprints: EXPECTED };
+}
+
+if (require.main === module) {
+  try {
+    const result = verify(process.argv[2] || process.cwd());
+    console.log(`upstream verified: Kikoeru ${result.version}; ${Object.keys(result.fingerprints).length} fingerprints match`);
+  } catch (error) {
+    console.error(`upstream verification failed: ${error.message}`);
+    process.exitCode = 1;
+  }
+}
+
+module.exports = { EXPECTED, EXPECTED_VERSION, verify };

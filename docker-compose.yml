@@ -1,0 +1,70 @@
+name: kikoeru-strm
+
+services:
+  kikoeru-strm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        UPSTREAM_IMAGE: ${KIKOERU_UPSTREAM_IMAGE:-number17/kikoeru@sha256:e934185b734b35e15fcdf62d96e65445edb1979ba0ed25d23d08679abda65c1c}
+    image: ${KIKOERU_STRM_IMAGE:-kikoeru-strm:0.1.0}
+    container_name: kikoeru-strm-12346
+    restart: unless-stopped
+    init: true
+    ports:
+      - "${KIKOERU_STRM_PORT:-12346}:8888"
+    environment:
+      NODE_ENV: production
+      KNEX_ENV: development
+      IS_DOCKER: "true"
+      PORT: "8888"
+      KIKOERU_ROOT: /usr/src/kikoeru
+      KIKOERU_STRM_MEDIA_PATH: /usr/src/kikoeru/VoiceWork
+      KIKOERU_ADMIN_PASSWORD: ${KIKOERU_ADMIN_PASSWORD:-}
+      KIKOERU_ADMIN_PASSWORD_FILE: /usr/src/kikoeru/config/admin-password
+      STRM_CACHE_ROOT: /usr/src/kikoeru/sqlite/strm-cache
+      STRM_ALLOWED_HOSTS: ${STRM_ALLOWED_HOSTS:?STRM_ALLOWED_HOSTS must be set to a Helper host[:port]}
+      STRM_REDIRECT_MODE: ${STRM_REDIRECT_MODE:-}
+      STRM_COLD_CACHE_ENABLED: ${STRM_COLD_CACHE_ENABLED:-}
+      STRM_CACHE_MAX_TOTAL_BYTES: ${STRM_CACHE_MAX_TOTAL_BYTES:-}
+      STRM_CACHE_MAX_FILE_BYTES: ${STRM_CACHE_MAX_FILE_BYTES:-}
+      STRM_CACHE_MAX_VIDEO_BYTES: ${STRM_CACHE_MAX_VIDEO_BYTES:-}
+      STRM_CACHE_MAX_AGE_MS: ${STRM_CACHE_MAX_AGE_MS:-}
+      STRM_CACHE_CLEANUP_INTERVAL_MS: ${STRM_CACHE_CLEANUP_INTERVAL_MS:-}
+      STRM_LOUDNESS_ENABLED: ${STRM_LOUDNESS_ENABLED:-}
+      STRM_LOUDNESS_AUDIO_ONLY: ${STRM_LOUDNESS_AUDIO_ONLY:-}
+      STRM_LOUDNESS_METHOD: ${STRM_LOUDNESS_METHOD:-}
+      STRM_PRELOAD_GUARD_ENABLED: ${STRM_PRELOAD_GUARD_ENABLED:-}
+      STRM_PRELOAD_GUARD_MODE: ${STRM_PRELOAD_GUARD_MODE:-}
+      STRM_PRELOAD_GUARD_DETECT_HEAD: ${STRM_PRELOAD_GUARD_DETECT_HEAD:-}
+      STRM_REDIRECT_MAX_CONCURRENT: ${STRM_REDIRECT_MAX_CONCURRENT:-}
+      STRM_REDIRECT_MIN_INTERVAL_MS: ${STRM_REDIRECT_MIN_INTERVAL_MS:-}
+      STRM_REDIRECT_MAX_QUEUE: ${STRM_REDIRECT_MAX_QUEUE:-}
+      STRM_REDIRECT_PER_MINUTE: ${STRM_REDIRECT_PER_MINUTE:-}
+      STRM_REDIRECT_PER_HOUR: ${STRM_REDIRECT_PER_HOUR:-}
+      STRM_REDIRECT_CACHE_TTL_MS: ${STRM_REDIRECT_CACHE_TTL_MS:-}
+      STRM_REDIRECT_COOLDOWN_MS: ${STRM_REDIRECT_COOLDOWN_MS:-}
+      STRM_REDIRECT_SEVERE_COOLDOWN_MS: ${STRM_REDIRECT_SEVERE_COOLDOWN_MS:-}
+      STRM_REDIRECT_SEVERE_AFTER_429: ${STRM_REDIRECT_SEVERE_AFTER_429:-}
+      STRM_REDIRECT_MAX_429_RETRIES: ${STRM_REDIRECT_MAX_429_RETRIES:-}
+      STRM_REDIRECT_RETRY_BASE_MS: ${STRM_REDIRECT_RETRY_BASE_MS:-}
+      STRM_REDIRECT_RETRY_MAX_MS: ${STRM_REDIRECT_RETRY_MAX_MS:-}
+      STRM_REDIRECT_RETRY_JITTER_MS: ${STRM_REDIRECT_RETRY_JITTER_MS:-}
+    volumes:
+      - ./deploy/runtime/config:/usr/src/kikoeru/config
+      - ./deploy/runtime/sqlite:/usr/src/kikoeru/sqlite
+      - ./deploy/runtime/covers:/usr/src/kikoeru/covers
+      - ./deploy/runtime/cache:/usr/src/kikoeru/sqlite/strm-cache
+      - ${KIKOERU_STRM_MEDIA_DIR:?KIKOERU_STRM_MEDIA_DIR must be an absolute host directory}:/usr/src/kikoeru/VoiceWork/:ro
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          require('http').get('http://127.0.0.1:8888/api/health', r =>
+          process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s

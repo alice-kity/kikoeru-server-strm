@@ -1,0 +1,20 @@
+# 本地检索用的上游源码副本，不纳入项目提交
+/tmp/
+.env
+.env.*.bak
+.env.install.*
+node_modules/
+coverage/
+*.log
+/sol-luna-taskflow.tar.gz
+
+# Runtime state for the independent compose project; keep directory markers,
+# never commit generated config, credentials, SQLite, covers or media cache.
+/deploy/runtime/config/*
+/deploy/runtime/sqlite/*
+/deploy/runtime/covers/*
+/deploy/runtime/cache/*
+!/deploy/runtime/config/.gitkeep
+!/deploy/runtime/sqlite/.gitkeep
+!/deploy/runtime/covers/.gitkeep
+!/deploy/runtime/cache/.gitkeep
