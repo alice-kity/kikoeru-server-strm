@@ -1,6 +1,6 @@
 # 独立 STRM 实例运维
 
-本文针对发布 `0.1.1`。项目是 `number17/kikoeru` `0.6.15` 的版本化 overlay，
+本文针对发布 `0.1.2`。项目是 `number17/kikoeru` `0.6.15` 的版本化 overlay，
 只管理独立 compose 项目 `kikoeru-strm`：容器 `kikoeru-strm-12346`，宿主端口
 `12346`。生产容器 `kikoeru` 使用的 `12345`、配置、SQLite、FUSE 原件和媒体数据
 不属于本项目，任何操作都不得触碰它们。
@@ -34,7 +34,7 @@ read -r -p 'Helper host[:port] (keep private): ' STRM_HELPER_HOST
   --media /media/MP_movieDB/NSFW/Voice1 \
   --helper "$STRM_HELPER_HOST" \
   --port 12346 \
-  --image kikoeru-strm:0.1.1
+  --image kikoeru-strm:0.1.2
 unset STRM_HELPER_HOST
 ```
 
@@ -90,8 +90,9 @@ STRM 设置通过原生 Vue Router 子路由融入 Kikoeru Dashboard 的视觉�
 原生管理后台的“STRM 设置”入口无刷新进入 `/admin/strm`。它复用 DashboardLayout 的
 原生 `links` 数组和 `/admin` 子路由，切换扫描、高级设置或其他菜单时由 Vue Router
 负责页面生命周期，避免双高亮、残留视图和污染原页面状态。缓存容量按 GiB 展示，保存
-超过上限的配置时会显示明确提示。核心媒体扫描、缓存、响度和交付行为在本版本冻结。
-状态和写操作 API 均要求管理员 JWT：
+超过上限的配置时会显示明确提示。STRM 组件样式严格隔离，并在 Vue 组件销毁时回收
+注入资源；设置表单在桌面采用两列对齐、窄屏采用单列滑动开关布局。核心媒体扫描、
+缓存、响度和交付行为在本版本冻结。状态和写操作 API 均要求管理员 JWT：
 
 ```text
 GET  /api/admin/strm
@@ -122,7 +123,7 @@ cp -a deploy/runtime/config deploy/runtime/sqlite deploy/runtime/covers "$backup
 ```sh
 ./scripts/manage.sh upgrade
 # 若要切换到已经存在的本地镜像：
-./scripts/manage.sh upgrade --image kikoeru-strm:0.1.1
+./scripts/manage.sh upgrade --image kikoeru-strm:0.1.2
 docker compose ps
 curl -fsS http://127.0.0.1:12346/api/health
 ```
@@ -139,7 +140,7 @@ curl -fsS http://127.0.0.1:12346/api/health
 回退流程：
 
 ```sh
-./scripts/manage.sh rollback --image kikoeru-strm:0.1.0
+./scripts/manage.sh rollback --image kikoeru-strm:0.1.1
 docker compose ps
 curl -fsS http://127.0.0.1:12346/api/health
 ```

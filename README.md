@@ -1,6 +1,6 @@
 # Kikoeru STRM 播放适配器
 
-发布版本：`0.1.1`。这是一个面向 `number17/kikoeru` 应用 `0.6.15` 的
+发布版本：`0.1.2`。这是一个面向 `number17/kikoeru` 应用 `0.6.15` 的
 版本化 Docker overlay：Kikoeru 扫描本地 STRM 指针，经过登录鉴权后由服务端
 向部署方配置的 Helper 发起一次 `HEAD`，再把客户端重定向到受控的 115 CDN。
 它不是 STRM 生成器，也不是通用 STRM 播放器。
@@ -60,7 +60,7 @@ read -r -p 'Helper host[:port] (keep private): ' STRM_HELPER_HOST
   --media /media/MP_movieDB/NSFW/Voice1 \
   --helper "$STRM_HELPER_HOST" \
   --port 12346 \
-  --image kikoeru-strm:0.1.1
+  --image kikoeru-strm:0.1.2
 unset STRM_HELPER_HOST
 ```
 
@@ -113,14 +113,16 @@ STRM 设置已通过原生 Vue Router 子路由融入 Kikoeru Dashboard 的视�
 原生管理后台的“STRM 设置”入口无刷新进入 `/admin/strm`。动态路由复用原有
 DashboardLayout 与 links 数组，因此切换到扫描、高级设置或其他菜单时由 Vue Router
 正常销毁/创建页面，不会留下双高亮或污染原页面状态。缓存容量按 GiB 展示，保存超过
-上限的配置时会显示明确提示。核心媒体扫描、缓存、响度和交付行为在本版本冻结。
+上限的配置时会显示明确提示。STRM 组件样式严格隔离且离开页面会回收注入资源；配置
+表单在桌面采用两列对齐、窄屏采用单列滑动开关布局。核心媒体扫描、缓存、响度和交付
+行为在本版本冻结。
 
 ```sh
 # 升级：保留旧镜像 tag 和数据，完成新版本验收后再清理旧 tag
 ./scripts/manage.sh upgrade
 
 # 回退：切回已保留的旧适配器镜像/版本，不删除上述数据
-./scripts/manage.sh rollback --image kikoeru-strm:0.1.0
+./scripts/manage.sh rollback --image kikoeru-strm:0.1.1
 
 # 卸载独立实例：默认只移除容器/项目，不删除 deploy/runtime
 ./scripts/manage.sh uninstall

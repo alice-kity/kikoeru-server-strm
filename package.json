@@ -1,6 +1,6 @@
 {
   "name": "kikoeru-strm-adapter",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Version-aware STRM playback overlay for number17/kikoeru 0.6.15",
   "scripts": {

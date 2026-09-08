@@ -11,7 +11,7 @@ umask 077
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 PROJECT_DIR="${KIKOERU_PROJECT_DIR:-$(cd -- "${SCRIPT_DIR}/.." && pwd -P)}"
 UPSTREAM_IMAGE='number17/kikoeru@sha256:e934185b734b35e15fcdf62d96e65445edb1979ba0ed25d23d08679abda65c1c'
-DEFAULT_IMAGE='kikoeru-strm:0.1.1'
+DEFAULT_IMAGE='kikoeru-strm:0.1.2'
 DEFAULT_PORT=12346
 SERVICE='kikoeru-strm'
 CONTAINER='kikoeru-strm-12346'
@@ -34,7 +34,7 @@ Required:
 
 Options:
   --port PORT       Host port for the independent service (default: 12346).
-  --image IMAGE     Versioned local image tag (default: kikoeru-strm:0.1.1).
+  --image IMAGE     Versioned local image tag (default: kikoeru-strm:0.1.2).
   --force           Replace an existing .env atomically.
   -h, --help        Show this help.
 

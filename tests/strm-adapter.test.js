@@ -878,6 +878,8 @@ test('admin UI exposes a same-origin STRM settings entry without credentials in 
   assert.match(MENU_SCRIPT, /admin\/advanced/);
   assert.match(MENU_SCRIPT, /admin\/strm/);
   assert.match(MENU_SCRIPT, /api\/admin\/strm-fragment/);
+  assert.match(ADMIN_HTML, /data-strm-admin-shell-style/);
+  assert.match(ADMIN_HTML, /data-strm-component-style/);
   assert.match(MENU_SCRIPT, /__kikoeruStrmVueRouteInstalled/);
   assert.doesNotMatch(MENU_SCRIPT, /position:fixed;right:16px;bottom:16px/);
   assert.doesNotMatch(MENU_SCRIPT, /pushState|preventDefault|hideNativePages|cloneNode|STRM_UI_PATH/);
@@ -918,6 +920,7 @@ test('admin UI has the native dashboard shell, active STRM route and binary cach
   assert.match(ADMIN_HTML, /data-strm-nav href="\/admin\/scanner"/);
   assert.match(ADMIN_HTML, /data-strm-nav href="\/admin\/advanced"/);
   assert.match(ADMIN_HTML, /data-strm-nav href="\/admin\/strm" aria-current="page"/);
+  assert.match(ADMIN_HTML, /class="q-page q-pa-md kikoeru-strm-admin"/);
   assert.match(ADMIN_HTML, /KiB/);
   assert.match(ADMIN_HTML, /MiB/);
   assert.match(ADMIN_HTML, /GiB/);
@@ -929,6 +932,30 @@ test('admin UI has the native dashboard shell, active STRM route and binary cach
   assert.doesNotMatch(MENU_SCRIPT, /preventDefault|pushState|popstate|data-kikoeru-strm-view/);
   assert.match(MENU_SCRIPT, /router\.matcher\s*=\s*fresh\.matcher/);
   assert.match(MENU_SCRIPT, /links\.splice/);
+});
+
+test('component CSS is scoped and settings use mobile-safe rows with native switch controls', () => {
+  const match = ADMIN_HTML.match(/<style data-strm-component-style>([\s\S]*?)<\/style>/);
+  assert.ok(match, 'component style is present separately from the standalone shell');
+  const css = match[1];
+  assert.doesNotMatch(css, /(^|[{},])\s*(?:html|body|:root|\*|input|select|pre|details|summary|\.q-[\w-]+)/m);
+  assert.match(css, /\.kikoeru-strm-admin \.strm-setting-row/);
+  assert.match(css, /@media \(max-width:700px\)[\s\S]*\.kikoeru-strm-admin \.strm-setting-row\{grid-template-columns:minmax\(0,1fr\)/);
+  assert.match(css, /@media \(max-width:700px\)[\s\S]*\.kikoeru-strm-admin \.strm-setting-control\{justify-content:flex-start\}/);
+  assert.match(ADMIN_HTML, /class="strm-settings-grid"/);
+  const switchIds = ['enabled', 'detectHead', 'coldCacheEnabled', 'loudnessEnabled', 'loudnessAudioOnly'];
+  for (const id of switchIds) {
+    const input = new RegExp(`<input id="${id}"[^>]*type="checkbox"[^>]*aria-label="[^"]+">`);
+    assert.match(ADMIN_HTML, input, `${id} keeps checkbox id/type/ARIA contract`);
+    const start = ADMIN_HTML.indexOf(`id="${id}"`);
+    const rowStart = ADMIN_HTML.lastIndexOf('<div class="strm-setting-row">', start);
+    const rowEnd = ADMIN_HTML.indexOf('</div></div>', start);
+    const row = ADMIN_HTML.slice(rowStart, rowEnd < 0 ? start + 400 : rowEnd + 12);
+    const label = row.match(/<label class="strm-switch"[^>]*>([\s\S]*?)<\/label>/);
+    assert.ok(label, `${id} is inside a dedicated switch label`);
+    assert.equal(label[1].replace(/<[^>]*>/g, '').trim(), '', `${id} switch label does not wrap copy text`);
+  }
+  assert.match(ADMIN_HTML, /@media \(max-width:700px\)/);
 });
 
 class AdminUiFakeClassList {
@@ -1040,8 +1067,8 @@ function makeAdminUiVueFixture() {
       source.innerHTML = '<section data-fixture="strm"><span id="status">status</span></section>';
       const script = new AdminUiFakeElement('script', { 'data-strm-admin-script': 'true' });
       script.textContent = 'window.__fixtureRuntimeRan=true;';
-      const style = new AdminUiFakeElement('style', { 'data-strm-admin-style': 'true' }, '.q-page{color:red}');
-      return { querySelector(selector) { return selector === '#strm-admin-content' ? source : selector === 'script[data-strm-admin-script]' ? script : selector === 'style[data-strm-admin-style]' ? style : null; } };
+      const style = new AdminUiFakeElement('style', { 'data-strm-component-style': 'true' }, '.kikoeru-strm-admin{color:red}');
+      return { querySelector(selector) { return selector === '#strm-admin-content' ? source : selector === 'script[data-strm-admin-script]' ? script : selector === 'style[data-strm-component-style]' ? style : null; } };
     }
   }
   return { app, body, head, nativePage, links, router, routes, transitions, window, document, DOMParser: FakeParser, FakeRouter };
@@ -1071,7 +1098,7 @@ test('Vue STRM component fetches fragment, injects runtime, and cleans up on des
   const component = fixture.window.__kikoeruStrmAdminComponent;
   assert.ok(component);
   const vnode = component.render((_tag, data) => ({ data }));
-  assert.deepEqual(Array.from(vnode.data.class), ['q-page', 'q-pa-md']);
+  assert.deepEqual(Array.from(vnode.data.class), ['q-page', 'q-pa-md', 'kikoeru-strm-admin']);
   assert.equal(vnode.data.attrs.id, 'strm-admin-content');
   const vmInstance = { $el: new AdminUiFakeElement('div', { id: 'strm-admin-content' }) };
   component.mounted.call(vmInstance);
@@ -1085,6 +1112,30 @@ test('Vue STRM component fetches fragment, injects runtime, and cleans up on des
   component.beforeDestroy.call(vmInstance);
   assert.equal(fixture.body.querySelectorAll('[data-kikoeru-strm-runtime]').length, 0);
   assert.equal(fixture.window.__kikoeruStrmAdminRuntime, undefined);
+  assert.equal(fixture.head.querySelectorAll('style[data-kikoeru-strm-style]').length, 0);
+
+  for (let i = 0; i < 10; i += 1) {
+    const repeated = { $el: new AdminUiFakeElement('div', { id: 'strm-admin-content' }) };
+    component.mounted.call(repeated);
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(fixture.head.querySelectorAll('style[data-kikoeru-strm-style]').length, 1);
+    component.beforeDestroy.call(repeated);
+    assert.equal(fixture.head.querySelectorAll('style[data-kikoeru-strm-style]').length, 0);
+    assert.equal(fixture.body.querySelectorAll('[data-kikoeru-strm-runtime]').length, 0);
+  }
+
+  const first = { $el: new AdminUiFakeElement('div', { id: 'strm-admin-content' }) };
+  const second = { $el: new AdminUiFakeElement('div', { id: 'strm-admin-content' }) };
+  component.mounted.call(first);
+  component.mounted.call(second);
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(fixture.head.querySelectorAll('style[data-kikoeru-strm-style]').length, 1);
+  component.beforeDestroy.call(first);
+  assert.equal(fixture.head.querySelectorAll('style[data-kikoeru-strm-style]').length, 1, 'destroying one owner preserves a concurrent owner');
+  component.beforeDestroy.call(second);
+  assert.equal(fixture.head.querySelectorAll('style[data-kikoeru-strm-style]').length, 0);
 });
 
 test('STRM admin runtime loads config and keeps save/cleanup API contracts', async () => {

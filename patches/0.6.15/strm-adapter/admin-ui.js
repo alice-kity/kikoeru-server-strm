@@ -93,6 +93,8 @@ const MENU_SCRIPT = [
   '  }',
   '  var STRM_ROUTE_FLAG = "__kikoeruStrmVueRouteInstalled";',
   '  var STRM_COMPONENT_FLAG = "__kikoeruStrmAdminComponent";',
+  '  var STRM_STYLE_STATE_FLAG = "__kikoeruStrmComponentStyleState";',
+  '  var STRM_STYLE_SEQ_FLAG = "__kikoeruStrmComponentStyleSequence";',
   '  var retryTimer = null;',
   '  var domObserver = null;',
   '  function appVue() {',
@@ -122,36 +124,48 @@ const MENU_SCRIPT = [
   '    if (window[STRM_COMPONENT_FLAG]) return window[STRM_COMPONENT_FLAG];',
   '    var component = {',
   '      name: "KikoeruStrmAdminPage",',
-  '      render: function (h) { return h("div", { class: ["q-page", "q-pa-md"], attrs: { id: "strm-admin-content" } }); },',
+  '      render: function (h) { return h("div", { class: ["q-page", "q-pa-md", "kikoeru-strm-admin"], attrs: { id: "strm-admin-content" } }); },',
   '      mounted: function () {',
   '        var vm = this, request = null;',
+  '        vm.__strmAlive = true;',
   '        try { request = window.fetch || (typeof fetch === "function" && fetch); } catch (_) {}',
   '        if (!request || typeof DOMParser !== "function") return;',
   '        request.call(window, "/api/admin/strm-fragment", { headers: { Accept: "text/html" } }).then(function (response) {',
   '          if (!response || ("ok" in response && !response.ok)) throw new Error("STRM 设置页面加载失败");',
   '          return response.text();',
   '        }).then(function (html) {',
-  '          if (!vm.$el) return;',
-  '          var parsed = new DOMParser().parseFromString(html, "text/html");',
-  '          var source = parsed && parsed.querySelector ? parsed.querySelector("#strm-admin-content") : null;',
-  '          if (!source) throw new Error("STRM 设置页面结构无效");',
-  '          var styleSource = parsed.querySelector ? parsed.querySelector("style[data-strm-admin-style]") : null;',
-  '          var head = document.head || document.documentElement;',
-  '          if (styleSource && head && document.createElement && !(document.querySelector && document.querySelector("style[data-kikoeru-strm-style]"))) {',
-  '            var style = document.createElement("style"); style.setAttribute("data-kikoeru-strm-style", "true"); style.textContent = styleSource.textContent || styleSource.text || ""; head.appendChild(style);',
+  '          if (!vm.__strmAlive || !vm.$el) return;',
+          '          var parsed = new DOMParser().parseFromString(html, "text/html");',
+          '          var source = parsed && parsed.querySelector ? parsed.querySelector("#strm-admin-content") : null;',
+          '          if (!source) throw new Error("STRM 设置页面结构无效");',
+  '          var styleSource = parsed.querySelector ? parsed.querySelector("style[data-strm-component-style]") : null;',
+          '          var head = document.head || document.documentElement;',
+  '          var styleState = window[STRM_STYLE_STATE_FLAG];',
+  '          if (styleSource && head && document.createElement && (!styleState || !styleState.node || !styleState.node.parentNode)) {',
+  '            var styleSequence = Number(window[STRM_STYLE_SEQ_FLAG] || 0) + 1; window[STRM_STYLE_SEQ_FLAG] = styleSequence;',
+  '            var styleOwner = "strm-component-style-" + styleSequence, style = document.createElement("style");',
+  '            style.setAttribute("data-kikoeru-strm-style", "true"); style.setAttribute("data-strm-style-owner", styleOwner); style.textContent = styleSource.textContent || styleSource.text || ""; head.appendChild(style);',
+  '            styleState = { node: style, owner: styleOwner, refs: 0 }; window[STRM_STYLE_STATE_FLAG] = styleState;',
   '          }',
+  '          if (styleState && styleState.node && styleState.node.parentNode) {',
+  '            var refSequence = Number(window[STRM_STYLE_SEQ_FLAG] || 0) + 1; window[STRM_STYLE_SEQ_FLAG] = refSequence; styleState.refs = Number(styleState.refs || 0) + 1; vm.__strmStyleRef = { state: styleState, ref: "strm-component-ref-" + refSequence };',
+          '          }',
   '          vm.$el.innerHTML = source.innerHTML || "";',
   '          var scriptSource = parsed.querySelector ? parsed.querySelector("script[data-strm-admin-script]") : null;',
   '          var target = document.body || document.documentElement;',
   '          if (scriptSource && target && document.createElement) {',
-  '            var script = document.createElement("script"); script.setAttribute("data-kikoeru-strm-runtime", "true"); script.text = scriptSource.textContent || scriptSource.text || ""; target.appendChild(script); vm.__strmRuntimeScript = script;',
+  '            var script = document.createElement("script"); script.setAttribute("data-kikoeru-strm-runtime", "true"); script.setAttribute("data-strm-runtime-owner", vm.__strmStyleRef ? vm.__strmStyleRef.ref : "strm-runtime"); script.text = scriptSource.textContent || scriptSource.text || ""; target.appendChild(script); vm.__strmRuntimeScript = script;',
   '          }',
   '        }).catch(function () {});',
   '      },',
   '      beforeDestroy: function () {',
+  '        this.__strmAlive = false;',
   '        if (this.__strmRuntimeScript && this.__strmRuntimeScript.parentNode) this.__strmRuntimeScript.parentNode.removeChild(this.__strmRuntimeScript);',
   '        this.__strmRuntimeScript = null;',
-  '        try { if (window.__kikoeruStrmAdminRuntime) delete window.__kikoeruStrmAdminRuntime; } catch (_) {}',
+  '        var styleRef = this.__strmStyleRef, styleState = styleRef && styleRef.state;',
+  '        if (styleState) { styleState.refs = Math.max(0, Number(styleState.refs || 0) - 1); if (styleState.refs === 0 && styleState.node && styleState.node.parentNode) styleState.node.parentNode.removeChild(styleState.node); if (window[STRM_STYLE_STATE_FLAG] === styleState && styleState.refs === 0) { try { delete window[STRM_STYLE_STATE_FLAG]; } catch (_) { window[STRM_STYLE_STATE_FLAG] = null; } } }',
+  '        this.__strmStyleRef = null;',
+  '        try { if (window.__kikoeruStrmAdminRuntime && (!window.__kikoeruStrmAdminRuntime.root || window.__kikoeruStrmAdminRuntime.root === this.$el)) delete window.__kikoeruStrmAdminRuntime; } catch (_) {}',
   '      }',
   '    };',
   '    window[STRM_COMPONENT_FLAG] = component;',
@@ -220,7 +234,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
   <meta name="theme-color" content="#000000">
   <link rel="stylesheet" href="/css/app.ab4be0f1.css" data-kikoeru-upstream-css>
   <title>STRM 设置 · 仪表盘</title>
-  <style data-strm-admin-style>
+  <style data-strm-admin-shell-style>
     :root{--strm-primary:#1976d2;--strm-primary-dark:#1565c0;--strm-bg:#f5f5f5;--strm-surface:#fff;--strm-text:#212121;--strm-muted:#6b7280;--strm-border:#e0e0e0;--strm-danger:#c62828;--strm-success:#2e7d32;--strm-header:#000}
     *{box-sizing:border-box}
     html,body,#q-app{min-height:100%;margin:0}
@@ -298,6 +312,53 @@ const ADMIN_HTML = String.raw`<!doctype html>
     @media (prefers-color-scheme:dark){body:not(.body--light){--strm-bg:#121212;--strm-surface:#1e1e1e;--strm-text:#f1f1f1;--strm-muted:#b0b0b0;--strm-border:#3b3b3b}.strm-progress{background:#424242}pre{background:rgba(255,255,255,.06)}}
     body.body--dark{--strm-bg:#121212;--strm-surface:#1e1e1e;--strm-text:#f1f1f1;--strm-muted:#b0b0b0;--strm-border:#3b3b3b}.body--dark .strm-progress{background:#424242}.body--dark pre{background:rgba(255,255,255,.06)}
   </style>
+  <style data-strm-component-style>
+    .kikoeru-strm-admin{--strm-primary:#1976d2;--strm-primary-dark:#1565c0;--strm-bg:#f5f5f5;--strm-surface:#fff;--strm-text:#212121;--strm-muted:#6b7280;--strm-border:#e0e0e0;--strm-danger:#c62828;--strm-success:#2e7d32;color:var(--strm-text)}
+    .kikoeru-strm-admin .strm-breadcrumb{display:flex;align-items:center;gap:8px;margin:0 0 18px;color:var(--strm-muted);font-size:13px}
+    .kikoeru-strm-admin .strm-breadcrumb strong{color:var(--strm-text);font-size:14px}
+    .kikoeru-strm-admin .strm-card{margin:0 0 16px;border:1px solid var(--strm-border);border-radius:4px;background:var(--strm-surface);box-shadow:0 1px 3px rgba(0,0,0,.12);overflow:hidden}
+    .kikoeru-strm-admin .strm-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:16px}
+    .kikoeru-strm-admin .strm-card-title{margin:0 0 4px;font-size:18px;line-height:1.35;font-weight:500}
+    .kikoeru-strm-admin .strm-card-subtitle{margin:0;color:var(--strm-muted);font-size:13px}
+    .kikoeru-strm-admin .strm-status-line{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:14px;font-size:15px}
+    .kikoeru-strm-admin .strm-dot{width:9px;height:9px;border-radius:50%;background:var(--strm-success);display:inline-block}
+    .kikoeru-strm-admin .strm-dot.err{background:var(--strm-danger)}
+    .kikoeru-strm-admin .strm-cache-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:18px}
+    .kikoeru-strm-admin .strm-stat{min-width:0;padding:12px;border-radius:4px;background:rgba(25,118,210,.06)}
+    .kikoeru-strm-admin .strm-stat-label{display:block;color:var(--strm-muted);font-size:12px}
+    .kikoeru-strm-admin .strm-stat-value{display:block;margin-top:2px;font-size:17px;font-weight:600;overflow-wrap:anywhere}
+    .kikoeru-strm-admin .strm-state-ok{color:var(--strm-success)}
+    .kikoeru-strm-admin .strm-state-over{color:var(--strm-danger)}
+    .kikoeru-strm-admin .strm-state-off{color:var(--strm-muted)}
+    .kikoeru-strm-admin .strm-progress{height:6px;margin-top:14px;border-radius:4px;background:#e3e8ef;overflow:hidden}
+    .kikoeru-strm-admin .strm-progress>span{display:block;width:0;height:100%;border-radius:inherit;background:var(--strm-primary);transition:width .2s}
+    .kikoeru-strm-admin .strm-progress>span.over{background:var(--strm-danger)}
+    .kikoeru-strm-admin .strm-settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 24px;margin-top:18px}
+    .kikoeru-strm-admin .strm-setting-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(140px,45%);align-items:center;gap:16px;min-width:0;padding:12px 0;border-top:1px solid var(--strm-border)}
+    .kikoeru-strm-admin .strm-setting-copy{display:flex;flex-direction:column;gap:3px;min-width:0}
+    .kikoeru-strm-admin .strm-setting-title{font-size:14px;font-weight:500;line-height:1.35}
+    .kikoeru-strm-admin .strm-setting-description{color:var(--strm-muted);font-size:12px;line-height:1.45}
+    .kikoeru-strm-admin .strm-setting-control{display:flex;align-items:center;justify-content:flex-end;min-width:0}
+    .kikoeru-strm-admin .strm-setting-control input:not([type=checkbox]),.kikoeru-strm-admin .strm-setting-control select{width:100%;min-height:38px;padding:7px 10px;border:1px solid #bdbdbd;border-radius:4px;background:var(--strm-surface);color:var(--strm-text)}
+    .kikoeru-strm-admin .strm-setting-control input:not([type=checkbox]):hover,.kikoeru-strm-admin .strm-setting-control select:hover{border-color:#757575}
+    .kikoeru-strm-admin .strm-switch{position:relative;display:inline-flex;align-items:center;justify-content:flex-end;min-width:44px;min-height:28px;cursor:pointer}
+    .kikoeru-strm-admin .strm-switch input{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;opacity:0}
+    .kikoeru-strm-admin .strm-switch__track{position:relative;display:block;width:40px;height:22px;border-radius:11px;background:#9e9e9e;transition:background .16s,box-shadow .16s}
+    .kikoeru-strm-admin .strm-switch__thumb{position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.32);transition:transform .16s}
+    .kikoeru-strm-admin .strm-switch input:checked+.strm-switch__track{background:var(--strm-primary)}
+    .kikoeru-strm-admin .strm-switch input:checked+.strm-switch__track .strm-switch__thumb{transform:translateX(18px)}
+    .kikoeru-strm-admin .strm-switch input:focus-visible+.strm-switch__track{outline:2px solid #90caf9;outline-offset:2px}
+    .kikoeru-strm-admin .strm-switch input:disabled+.strm-switch__track{cursor:not-allowed;opacity:.55}
+    .kikoeru-strm-admin .strm-help{margin:14px 0 0;color:var(--strm-muted);font-size:13px;line-height:1.6}
+    .kikoeru-strm-admin .strm-message{min-height:22px;display:inline-flex;align-items:center;font-size:13px}
+    .kikoeru-strm-admin .muted{color:var(--strm-muted)}
+    .kikoeru-strm-admin .ok{color:var(--strm-success)}
+    .kikoeru-strm-admin .err{color:var(--strm-danger)}
+    .kikoeru-strm-admin pre{max-width:100%;margin:16px 0 0;padding:12px;border-radius:4px;background:rgba(0,0,0,.035);color:var(--strm-text);white-space:pre-wrap;overflow:auto;font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .kikoeru-strm-admin details{margin-top:14px;color:var(--strm-muted)}
+    .kikoeru-strm-admin summary{cursor:pointer}
+    @media (max-width:700px){.kikoeru-strm-admin .strm-settings-grid{grid-template-columns:minmax(0,1fr)}.kikoeru-strm-admin .strm-setting-row{grid-template-columns:minmax(0,1fr);align-items:start}.kikoeru-strm-admin .strm-setting-control{justify-content:flex-start}.kikoeru-strm-admin .strm-cache-summary{grid-template-columns:minmax(0,1fr)}}
+  </style>
 </head>
 <body>
   <div id="q-app" class="q-layout q-layout--standard" data-strm-native-dashboard="true">
@@ -320,7 +381,7 @@ const ADMIN_HTML = String.raw`<!doctype html>
       </nav>
     </aside>
     <div class="q-page-container">
-      <main id="strm-admin-content" class="q-page q-pa-md" data-strm-admin-content="true">
+      <main id="strm-admin-content" class="q-page q-pa-md kikoeru-strm-admin" data-strm-admin-content="true">
         <div class="strm-breadcrumb"><span>管理后台</span><span aria-hidden="true">/</span><strong>STRM 设置</strong></div>
         <section class="strm-card q-card" aria-labelledby="strm-status-title">
           <div class="q-card__section q-card__section--vert">
@@ -339,26 +400,26 @@ const ADMIN_HTML = String.raw`<!doctype html>
         </section>
         <section class="strm-card q-card" aria-labelledby="strm-security-title">
           <div class="q-card__section q-card__section--vert"><h2 id="strm-security-title" class="strm-card-title">安全与播放策略</h2><p class="strm-card-subtitle">控制 STRM 是否启用、预取识别以及客户端的媒体交付方式。</p>
-            <div class="strm-grid" style="margin-top:18px">
-              <label class="strm-check"><input id="enabled" type="checkbox"><span>启用 STRM 适配层</span></label>
-              <label class="strm-field"><span>播放交付方式</span><select id="redirectMode"><option value="direct">冷启动响度后 302（推荐）</option><option value="local">永久本地兼容（手动选项，需完整冷下载）</option></select></label>
-              <label class="strm-field"><span>预取模式</span><select id="preloadMode"><option value="observe">仅观测（默认）</option><option value="short-circuit">明确预取时短路（需确认）</option><option value="off">关闭</option></select></label>
-              <label class="strm-check"><input id="detectHead" type="checkbox"><span>将 HEAD 作为预取信号（可能误判播放器探测）</span></label>
-              <label class="strm-field"><span>同一媒体直链复用（秒）</span><input id="redirectCacheTtlMs" type="number" min="0" max="60" step="1" inputmode="decimal"><span class="muted">0 = 每次重新请求 Helper</span></label>
+            <div class="strm-settings-grid">
+              <div class="strm-setting-row"><div class="strm-setting-copy"><span class="strm-setting-title">启用 STRM 适配层</span><span class="strm-setting-description">控制 STRM 播放适配器是否参与媒体请求。</span></div><div class="strm-setting-control"><label class="strm-switch" aria-label="启用 STRM 适配层"><input id="enabled" type="checkbox" aria-label="启用 STRM 适配层"><span class="strm-switch__track" aria-hidden="true"><span class="strm-switch__thumb"></span></span></label></div></div>
+              <div class="strm-setting-row"><div class="strm-setting-copy"><span class="strm-setting-title">播放交付方式</span><span class="strm-setting-description">direct 在响度准备后返回 CDN 302。</span></div><div class="strm-setting-control"><select id="redirectMode" aria-label="播放交付方式"><option value="direct">冷启动响度后 302（推荐）</option><option value="local">永久本地兼容（手动选项，需完整冷下载）</option></select></div></div>
+              <div class="strm-setting-row"><div class="strm-setting-copy"><span class="strm-setting-title">预取模式</span><span class="strm-setting-description">控制播放器预取请求的观察和短路策略。</span></div><div class="strm-setting-control"><select id="preloadMode" aria-label="预取模式"><option value="observe">仅观测（默认）</option><option value="short-circuit">明确预取时短路（需确认）</option><option value="off">关闭</option></select></div></div>
+              <div class="strm-setting-row"><div class="strm-setting-copy"><span class="strm-setting-title">识别 HEAD 预取</span><span class="strm-setting-description">可能将播放器探测误判为预取。</span></div><div class="strm-setting-control"><label class="strm-switch" aria-label="将 HEAD 作为预取信号"><input id="detectHead" type="checkbox" aria-label="将 HEAD 作为预取信号"><span class="strm-switch__track" aria-hidden="true"><span class="strm-switch__thumb"></span></span></label></div></div>
+              <div class="strm-setting-row"><div class="strm-setting-copy"><span class="strm-setting-title">同一媒体直链复用</span><span class="strm-setting-description">缓存时间为 0 秒表示每次重新请求 Helper。</span></div><div class="strm-setting-control"><input id="redirectCacheTtlMs" type="number" min="0" max="60" step="1" inputmode="decimal" aria-label="同一媒体直链复用秒数"></div></div>
             </div>
           </div>
         </section>
         <section class="strm-card q-card" aria-labelledby="strm-cache-title">
           <div class="q-card__section q-card__section--vert"><h2 id="strm-cache-title" class="strm-card-title">冷启动与响度策略</h2><p class="strm-card-subtitle">为首次播放准备本地文件，并按容量与保留时间管理冷缓存。</p>
-            <div class="strm-grid" style="margin-top:18px">
-              <label class="strm-check"><input id="coldCacheEnabled" type="checkbox"><span>启用冷启动缓存</span></label>
-              <label class="strm-field"><span>缓存总容量（GiB）</span><input id="maxTotalBytes" type="number" min="0" step="0.1" inputmode="decimal"></label>
-              <label class="strm-field"><span>单个文件上限（MiB）</span><input id="maxFileBytes" type="number" min="0" step="0.1" inputmode="decimal"></label>
-              <label class="strm-field"><span>视频文件上限（MiB）</span><input id="maxVideoBytes" type="number" min="0" step="0.1" inputmode="decimal"></label>
-              <label class="strm-field"><span>缓存最长保留（天）</span><input id="maxAgeMs" type="number" min="0" step="0.1" inputmode="decimal"></label>
-              <label class="strm-check"><input id="loudnessEnabled" type="checkbox"><span>启用响度分析</span></label>
-              <label class="strm-check"><input id="loudnessAudioOnly" type="checkbox"><span>仅对音频执行响度分析</span></label>
-              <label class="strm-field"><span>响度测量器</span><select id="loudnessMethod"><option value="loudnorm">loudnorm（兼容输出）</option><option value="ebur128">ebur128（更快测量）</option></select></label>
+            <div class="strm-settings-grid">
+              <div class="strm-setting-row"><div class="strm-setting-copy"><span class="strm-setting-title">启用冷启动缓存</span><span class="strm-setting-description">首次播放时准备本地完整文件。</span></div><div class="strm-setting-control"><label class="strm-switch" aria-label="启用冷启动缓存"><input id="coldCacheEnabled" type="checkbox" aria-label="启用冷启动缓存"><span class="strm-switch__track" aria-hidden="true"><span class="strm-switch__thumb"></span></span></label></div></div>
+              <div class="strm-setting-row"><div class="strm-setting-copy"><span class="strm-setting-title">缓存总容量（GiB）</span><span class="strm-setting-description">超过容量时按策略清理旧缓存。</span></div><div class="strm-setting-control"><input id="maxTotalBytes" type="number" min="0" step="0.1" inputmode="decimal" aria-label="缓存总容量 GiB"></div></div>
+              <div class="strm-setting-row"><div class="strm-setting-copy"><span class="strm-setting-title">单个文件上限（MiB）</span><span class="strm-setting-description">限制单个媒体可占用的缓存空间。</span></div><div class="strm-setting-control"><input id="maxFileBytes" type="number" min="0" step="0.1" inputmode="decimal" aria-label="单个文件上限 MiB"></div></div>
+              <div class="strm-setting-row"><div class="strm-setting-copy"><span class="strm-setting-title">视频文件上限（MiB）</span><span class="strm-setting-description">设置为 0 表示不缓存视频。</span></div><div class="strm-setting-control"><input id="maxVideoBytes" type="number" min="0" step="0.1" inputmode="decimal" aria-label="视频文件上限 MiB"></div></div>
+              <div class="strm-setting-row"><div class="strm-setting-copy"><span class="strm-setting-title">缓存最长保留（天）</span><span class="strm-setting-description">缓存超过保留期后可被清理。</span></div><div class="strm-setting-control"><input id="maxAgeMs" type="number" min="0" step="0.1" inputmode="decimal" aria-label="缓存最长保留天数"></div></div>
+              <div class="strm-setting-row"><div class="strm-setting-copy"><span class="strm-setting-title">启用响度分析</span><span class="strm-setting-description">为完整本地缓存准备响度信息。</span></div><div class="strm-setting-control"><label class="strm-switch" aria-label="启用响度分析"><input id="loudnessEnabled" type="checkbox" aria-label="启用响度分析"><span class="strm-switch__track" aria-hidden="true"><span class="strm-switch__thumb"></span></span></label></div></div>
+              <div class="strm-setting-row"><div class="strm-setting-copy"><span class="strm-setting-title">仅对音频执行响度分析</span><span class="strm-setting-description">视频媒体跳过响度分析。</span></div><div class="strm-setting-control"><label class="strm-switch" aria-label="仅对音频执行响度分析"><input id="loudnessAudioOnly" type="checkbox" aria-label="仅对音频执行响度分析"><span class="strm-switch__track" aria-hidden="true"><span class="strm-switch__thumb"></span></span></label></div></div>
+              <div class="strm-setting-row"><div class="strm-setting-copy"><span class="strm-setting-title">响度测量器</span><span class="strm-setting-description">选择兼容输出或更快的测量方式。</span></div><div class="strm-setting-control"><select id="loudnessMethod" aria-label="响度测量器"><option value="loudnorm">loudnorm（兼容输出）</option><option value="ebur128">ebur128（更快测量）</option></select></div></div>
             </div>
             <p class="strm-help">本地模式提供永久本地兼容，首次冷启动需要完整下载到 .part，完成后改名为正式缓存并占用配置的磁盘空间；缓存按容量和保留天数清理。视频上限设为 0 表示不缓存视频。</p>
             <p class="strm-help">直接模式首次请求会完整冷下载并在本地完成响度准备，首播先返回本地文件；响度就绪后后续播放和 Range 返回 302，媒体正文由客户端从 CDN 获取，适合已验证兼容性的场景。</p>
