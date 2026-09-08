@@ -109,9 +109,11 @@ waiting/stalled/error 或网络加载状态，会在约 2.5 秒窗口后尝试�
 | `covers/` | 封面 | 保留 |
 | `cache/` | STRM 临时媒体缓存和 `.part` 文件 | 保留，可单独清理 |
 
-STRM 设置已融入 Kikoeru 原生 Dashboard 的视觉和导航；登录后从原生管理后台的
-“STRM 设置”入口进入 `/admin/strm`。缓存容量按 GiB 展示，保存超过上限的配置时会
-显示明确提示。核心媒体扫描、缓存、响度和交付行为在本版本冻结。
+STRM 设置已通过原生 Vue Router 子路由融入 Kikoeru Dashboard 的视觉和导航；登录后从
+原生管理后台的“STRM 设置”入口无刷新进入 `/admin/strm`。动态路由复用原有
+DashboardLayout 与 links 数组，因此切换到扫描、高级设置或其他菜单时由 Vue Router
+正常销毁/创建页面，不会留下双高亮或污染原页面状态。缓存容量按 GiB 展示，保存超过
+上限的配置时会显示明确提示。核心媒体扫描、缓存、响度和交付行为在本版本冻结。
 
 ```sh
 # 升级：保留旧镜像 tag 和数据，完成新版本验收后再清理旧 tag

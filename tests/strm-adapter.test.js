@@ -877,8 +877,10 @@ test('admin UI exposes a same-origin STRM settings entry without credentials in 
   assert.match(MENU_SCRIPT, /STRM 设置/);
   assert.match(MENU_SCRIPT, /admin\/advanced/);
   assert.match(MENU_SCRIPT, /admin\/strm/);
-  assert.match(MENU_SCRIPT, /admin\/strm-fragment/);
+  assert.match(MENU_SCRIPT, /api\/admin\/strm-fragment/);
+  assert.match(MENU_SCRIPT, /__kikoeruStrmVueRouteInstalled/);
   assert.doesNotMatch(MENU_SCRIPT, /position:fixed;right:16px;bottom:16px/);
+  assert.doesNotMatch(MENU_SCRIPT, /pushState|preventDefault|hideNativePages|cloneNode|STRM_UI_PATH/);
   assert.doesNotThrow(() => new vm.Script(MENU_SCRIPT));
   const response = { statusCode: 0, headers: {}, body: '', setHeader(k, v) { this.headers[k] = v; }, end(v) { this.body = String(v || ''); } };
   createAdminUiMiddleware()({ method: 'GET', url: '/admin/strm' }, response, () => { throw new Error('page should be handled'); });
@@ -888,7 +890,7 @@ test('admin UI exposes a same-origin STRM settings entry without credentials in 
 
 test('admin UI serves direct and trailing-slash routes while preserving middleware fallthrough', () => {
   const middleware = createAdminUiMiddleware();
-  for (const url of ['/admin/strm', '/admin/strm/', '/admin/strm?from=dashboard', '/admin/strm-fragment', '/admin/strm-fragment/']) {
+  for (const url of ['/admin/strm', '/admin/strm/', '/admin/strm?from=dashboard', '/api/admin/strm-fragment', '/api/admin/strm-fragment/']) {
     const response = { statusCode: 0, headers: {}, body: '', setHeader(k, v) { this.headers[k] = v; }, end(v) { this.body = String(v || ''); } };
     let nextCalled = false;
     middleware({ method: 'GET', url }, response, () => { nextCalled = true; });
@@ -903,6 +905,9 @@ test('admin UI serves direct and trailing-slash routes while preserving middlewa
   let fallthrough = 0;
   middleware({ method: 'POST', url: '/admin/strm' }, {}, () => { fallthrough += 1; });
   assert.equal(fallthrough, 1);
+  let apiUiFallthrough = 0;
+  middleware({ method: 'GET', url: '/api/admin/strm-ui' }, {}, () => { apiUiFallthrough += 1; });
+  assert.equal(apiUiFallthrough, 1);
 });
 
 test('admin UI has the native dashboard shell, active STRM route and binary cache units', () => {
@@ -921,10 +926,9 @@ test('admin UI has the native dashboard shell, active STRM route and binary cach
   assert.match(ADMIN_HTML, /id="cacheLimit"/);
   assert.match(ADMIN_HTML, /id="cacheState"/);
   assert.match(ADMIN_HTML, /已超限/);
-  assert.match(MENU_SCRIPT, /preventDefault/);
-  assert.match(MENU_SCRIPT, /pushState/);
-  assert.match(MENU_SCRIPT, /popstate/);
-  assert.match(MENU_SCRIPT, /data-kikoeru-strm-view/);
+  assert.doesNotMatch(MENU_SCRIPT, /preventDefault|pushState|popstate|data-kikoeru-strm-view/);
+  assert.match(MENU_SCRIPT, /router\.matcher\s*=\s*fresh\.matcher/);
+  assert.match(MENU_SCRIPT, /links\.splice/);
 });
 
 class AdminUiFakeClassList {
@@ -961,7 +965,6 @@ class AdminUiFakeElement {
   appendChild(child) { if (child.parentNode) child.parentNode.removeChild(child); child.parentNode = this; this.children.push(child); return child; }
   insertBefore(child, before) { if (child.parentNode) child.parentNode.removeChild(child); child.parentNode = this; const index = before ? this.children.indexOf(before) : -1; if (index < 0) this.children.push(child); else this.children.splice(index, 0, child); return child; }
   removeChild(child) { const index = this.children.indexOf(child); if (index >= 0) { this.children.splice(index, 1); child.parentNode = null; } return child; }
-  cloneNode(deep = false) { const clone = new AdminUiFakeElement(this.tagName, this.attrs, this.textContent); clone.value = this.value; clone.checked = this.checked; if (deep) this.children.forEach(child => clone.appendChild(child.cloneNode(true))); return clone; }
   addEventListener(type, handler) { (this.listeners[type] ||= []).push(handler); }
   dispatch(type, event = {}) { for (const handler of (this.listeners[type] || []).slice()) handler(event); }
   querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
@@ -974,7 +977,6 @@ class AdminUiFakeElement {
       if (selector === '.q-page') return node.classList.contains('q-page');
       if (selector === '[data-kikoeru-strm-menu]') return node.getAttribute('data-kikoeru-strm-menu') === 'true';
       if (selector === '[data-kikoeru-strm-runtime]') return node.getAttribute('data-kikoeru-strm-runtime') === 'true';
-      if (selector === '[data-kikoeru-strm-view]') return node.getAttribute('data-kikoeru-strm-view') === 'true';
       if (selector === 'style[data-kikoeru-strm-style]') return node.tagName === 'STYLE' && node.getAttribute('data-kikoeru-strm-style') === 'true';
       if (selector === '[data-strm-nav]') return node.getAttribute('data-strm-nav') !== null;
       if (selector === 'a[href="/admin/advanced"]' || selector === '[href="/admin/advanced"]') return node.getAttribute('href') === '/admin/advanced';
@@ -987,89 +989,102 @@ class AdminUiFakeElement {
   }
 }
 
-function makeAdminUiMenuFixture() {
+function makeAdminUiVueFixture() {
   const body = new AdminUiFakeElement('body');
   const head = new AdminUiFakeElement('head');
-  const container = new AdminUiFakeElement('div', { class: 'q-page-container' });
-  const oldPage = new AdminUiFakeElement('form', { class: 'q-form' }, 'native page');
-  const nav = new AdminUiFakeElement('nav');
-  const advanced = new AdminUiFakeElement('a', { href: '/admin/advanced', class: 'q-item' });
-  advanced.appendChild(new AdminUiFakeElement('span', { class: 'q-item__section--main' }, '高级设置'));
-  nav.appendChild(new AdminUiFakeElement('a', { href: '/admin' }, '音声库'));
-  nav.appendChild(advanced);
-  nav.appendChild(new AdminUiFakeElement('a', { href: '/' }, '回到主页'));
+  const app = new AdminUiFakeElement('div', { id: 'q-app' });
+  const nativePage = new AdminUiFakeElement('form', { id: 'native-page' }, 'native page');
   body.appendChild(head);
-  body.appendChild(nav);
-  container.appendChild(oldPage);
-  body.appendChild(container);
-  const popstate = [];
+  body.appendChild(app);
+  body.appendChild(nativePage);
+  const links = [
+    { title: '音声库', icon: 'folder', path: '/admin' },
+    { title: '高级设置', icon: 'settings', path: '/admin/advanced' },
+    { title: '回到主页', icon: 'home', path: '/' },
+  ];
+  class FakeRouter {
+    static instances = [];
+    constructor(options) {
+      this.options = options;
+      this.matcher = { routes: options.routes };
+      FakeRouter.instances.push(this);
+    }
+  }
+  const routes = [{ path: '/admin', children: [{ path: 'advanced', component: { name: 'Advanced' } }] }, { path: '/login' }];
+  const router = new FakeRouter({ routes });
+  const transitions = [];
+  router.history = {
+    getCurrentLocation() { return '/admin/strm'; },
+    transitionTo(path) { transitions.push(path); },
+  };
+  const layout = { links, $children: [] };
+  const rootVm = { $router: router, $children: [layout] };
+  app.__vue__ = rootVm;
   const window = {
     location: { href: 'http://fixture.test/admin', pathname: '/admin', origin: 'http://fixture.test' },
-    history: { pushes: [], pushState(state, title, url) { this.pushes.push({ state, title, url }); window.location.pathname = url; window.location.href = `http://fixture.test${url}`; } },
-    addEventListener(type, handler) { if (type === 'popstate') popstate.push(handler); },
-    localStorage: { getItem() { return 'fixture-token'; } },
+    addEventListener() {},
     fetches: [],
     fetch(url) { this.fetches.push(url); return Promise.resolve({ ok: true, text: () => Promise.resolve(ADMIN_HTML) }); },
   };
   const document = {
     readyState: 'complete', body, head, documentElement: body,
+    getElementById(id) { return id === 'q-app' ? app : null; },
     createElement(tagName) { return new AdminUiFakeElement(tagName); },
-    querySelector(selector) { return body.querySelector(selector); },
+    querySelector(selector) { return body.querySelector(selector) || head.querySelector(selector); },
     querySelectorAll(selector) { return body.querySelectorAll(selector); },
     addEventListener() {},
   };
   class FakeParser {
     parseFromString() {
       const source = new AdminUiFakeElement('main', { id: 'strm-admin-content' });
-      source.innerHTML = '<section data-fixture="strm"></section>';
+      source.innerHTML = '<section data-fixture="strm"><span id="status">status</span></section>';
       const script = new AdminUiFakeElement('script', { 'data-strm-admin-script': 'true' });
-      script.textContent = '';
+      script.textContent = 'window.__fixtureRuntimeRan=true;';
       const style = new AdminUiFakeElement('style', { 'data-strm-admin-style': 'true' }, '.q-page{color:red}');
       return { querySelector(selector) { return selector === '#strm-admin-content' ? source : selector === 'script[data-strm-admin-script]' ? script : selector === 'style[data-strm-admin-style]' ? style : null; } };
     }
   }
-  return { body, head, container, oldPage, advanced, window, document, popstate, DOMParser: FakeParser };
+  return { app, body, head, nativePage, links, router, routes, transitions, window, document, DOMParser: FakeParser, FakeRouter };
 }
 
-test('injected dashboard menu click mounts STRM into q-page and popstate restores the native page', async () => {
-  const fixture = makeAdminUiMenuFixture();
-  const context = vm.createContext(Object.assign({ URL, DOMParser: fixture.DOMParser, MutationObserver: class { observe() {} }, setTimeout() { return 1; }, clearTimeout() {}, window: fixture.window, document: fixture.document, localStorage: fixture.window.localStorage }, fixture.window));
+test('dashboard integration adds a real Vue child route and native link exactly once', () => {
+  const fixture = makeAdminUiVueFixture();
+  const context = vm.createContext(Object.assign({ URL, DOMParser: fixture.DOMParser, MutationObserver: class { observe() {} }, setTimeout() { return 1; }, clearTimeout() {}, window: fixture.window, document: fixture.document }, fixture.window));
   new vm.Script(MENU_SCRIPT).runInContext(context);
-  const entry = fixture.body.querySelector('[data-kikoeru-strm-menu]');
-  assert.ok(entry, 'STRM entry is cloned into the native menu');
-  const event = { button: 0, prevented: false, preventDefault() { this.prevented = true; } };
-  entry.dispatch('click', event);
-  await new Promise(resolve => setImmediate(resolve));
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(event.prevented, true);
-  assert.deepEqual(fixture.window.history.pushes.map(push => push.url), ['/admin/strm']);
-  assert.deepEqual(fixture.window.fetches, ['/admin/strm-fragment']);
-  assert.equal(fixture.body.querySelectorAll('[data-kikoeru-strm-view]').length, 1);
-  const mountedView = fixture.container.children.find(child => child.getAttribute('data-kikoeru-strm-view') === 'true');
-  assert.ok(mountedView);
-  assert.equal(mountedView.getAttribute('id'), 'strm-admin-content', 'mounted runtime keeps its root id');
-  assert.equal(fixture.head.querySelectorAll('style[data-kikoeru-strm-style]').length, 1, 'custom STRM CSS is mounted into the native document head');
-  assert.equal(fixture.oldPage.style.display, 'none');
-  assert.equal(entry.getAttribute('aria-current'), 'page');
-  fixture.window.location.pathname = '/admin/advanced';
-  fixture.popstate.forEach(handler => handler({ type: 'popstate' }));
-  assert.equal(fixture.body.querySelectorAll('[data-kikoeru-strm-view]').length, 0);
-  assert.equal(fixture.oldPage.style.display, '');
-  assert.equal(entry.getAttribute('aria-current'), null);
+  assert.equal(fixture.FakeRouter.instances.length, 2, 'matcher is rebuilt once with the added child route');
+  const fresh = fixture.FakeRouter.instances[1];
+  const admin = fresh.options.routes.find(route => route.path === '/admin');
+  assert.ok(admin.children.some(route => route.path === 'strm'));
+  assert.deepEqual(fixture.transitions, ['/admin/strm']);
+  assert.equal(fixture.links.filter(link => link.path === '/admin/strm').length, 1);
+  assert.deepEqual(fixture.links.map(link => link.path), ['/admin', '/admin/advanced', '/admin/strm', '/']);
+  assert.equal(fixture.body.children.length, 3, 'native DOM is not taken over by a cloned page');
+  new vm.Script(MENU_SCRIPT).runInContext(context);
+  assert.equal(fixture.FakeRouter.instances.length, 2);
+  assert.equal(fixture.links.filter(link => link.path === '/admin/strm').length, 1);
 });
 
-test('SPA boot at /admin/strm uses the non-navigation fragment route for SW-safe direct refresh', async () => {
-  const fixture = makeAdminUiMenuFixture();
-  fixture.window.location.pathname = '/admin/strm';
-  const context = vm.createContext(Object.assign({ URL, DOMParser: fixture.DOMParser, MutationObserver: class { observe() {} }, setTimeout() { return 1; }, clearTimeout() {}, window: fixture.window, document: fixture.document, localStorage: fixture.window.localStorage }, fixture.window));
+test('Vue STRM component fetches fragment, injects runtime, and cleans up on destroy', async () => {
+  const fixture = makeAdminUiVueFixture();
+  const context = vm.createContext(Object.assign({ URL, DOMParser: fixture.DOMParser, MutationObserver: class { observe() {} }, setTimeout() { return 1; }, clearTimeout() {}, window: fixture.window, document: fixture.document, Promise }, fixture.window));
   new vm.Script(MENU_SCRIPT).runInContext(context);
+  const component = fixture.window.__kikoeruStrmAdminComponent;
+  assert.ok(component);
+  const vnode = component.render((_tag, data) => ({ data }));
+  assert.deepEqual(Array.from(vnode.data.class), ['q-page', 'q-pa-md']);
+  assert.equal(vnode.data.attrs.id, 'strm-admin-content');
+  const vmInstance = { $el: new AdminUiFakeElement('div', { id: 'strm-admin-content' }) };
+  component.mounted.call(vmInstance);
   await new Promise(resolve => setImmediate(resolve));
   await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(fixture.window.fetches, ['/admin/strm-fragment']);
-  const mountedView = fixture.container.children.find(child => child.getAttribute('data-kikoeru-strm-view') === 'true');
-  assert.ok(mountedView);
-  assert.equal(mountedView.getAttribute('id'), 'strm-admin-content');
-  assert.equal(fixture.oldPage.style.display, 'none');
+  assert.deepEqual(fixture.window.fetches, ['/api/admin/strm-fragment']);
+  assert.match(vmInstance.$el.innerHTML, /data-fixture="strm"/);
+  assert.equal(fixture.head.querySelectorAll('style[data-kikoeru-strm-style]').length, 1);
+  assert.equal(fixture.body.querySelectorAll('[data-kikoeru-strm-runtime]').length, 1);
+  fixture.window.__kikoeruStrmAdminRuntime = { root: vmInstance.$el };
+  component.beforeDestroy.call(vmInstance);
+  assert.equal(fixture.body.querySelectorAll('[data-kikoeru-strm-runtime]').length, 0);
+  assert.equal(fixture.window.__kikoeruStrmAdminRuntime, undefined);
 });
 
 test('STRM admin runtime loads config and keeps save/cleanup API contracts', async () => {

@@ -86,10 +86,12 @@ docker inspect kikoeru-strm-12346 --format '{{.Config.Image}}'
 5. 查看脱敏日志和状态页，确认没有 Helper URL、CDN `Location`、query、JWT、
    Cookie 或密码。
 
-STRM 设置已融入 Kikoeru 原生 Dashboard 的视觉和导航；登录后从原生管理后台的
-“STRM 设置”入口进入 `/admin/strm`。缓存容量按 GiB 展示，保存超过上限的配置时会
-显示明确提示。核心媒体扫描、缓存、响度和交付行为在本版本冻结。状态和写操作 API
-均要求管理员 JWT：
+STRM 设置通过原生 Vue Router 子路由融入 Kikoeru Dashboard 的视觉和导航；登录后从
+原生管理后台的“STRM 设置”入口无刷新进入 `/admin/strm`。它复用 DashboardLayout 的
+原生 `links` 数组和 `/admin` 子路由，切换扫描、高级设置或其他菜单时由 Vue Router
+负责页面生命周期，避免双高亮、残留视图和污染原页面状态。缓存容量按 GiB 展示，保存
+超过上限的配置时会显示明确提示。核心媒体扫描、缓存、响度和交付行为在本版本冻结。
+状态和写操作 API 均要求管理员 JWT：
 
 ```text
 GET  /api/admin/strm

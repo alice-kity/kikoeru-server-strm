@@ -6,8 +6,10 @@
 
 - 将 STRM 设置融入 Kikoeru 原生 Dashboard 的视觉和导航体系，管理员可从原生管理
   后台进入 STRM 设置。
-- 支持 Dashboard 内无刷新切换、浏览器前进/后退，以及 Service Worker 控制下直接
-  刷新 `/admin/strm` 后重新挂载原生设置内容。
+- 修复 STRM 设置离开后原生菜单被破坏及高级/STRM 双高亮；改用原生 Vue Router
+  `/admin/strm` 子路由和 DashboardLayout links，无刷新切换并由 Vue 生命周期清理页面。
+- Service Worker 返回 SPA index 的直接刷新会在动态 matcher 重建后正常匹配 `/admin/strm`；
+  设置内容由组件从 `/api/admin/strm-fragment` 加载。
 - 修正缓存容量的 GiB 展示，并在配置超过上限时给出明确的超限提示。
 - 核心媒体行为冻结：扫描、冷缓存/响度、302/Range/seek 和长暂停恢复契约均不变；
   本次发布聚焦管理界面集成与展示修正。
