@@ -958,6 +958,40 @@ test('component CSS is scoped and settings use mobile-safe rows with native swit
   assert.match(ADMIN_HTML, /@media \(max-width:700px\)/);
 });
 
+test('STRM action buttons use scoped Quasar-like variants and structure', () => {
+  const componentCss = ADMIN_HTML.match(/<style data-strm-component-style>([\s\S]*?)<\/style>/)?.[1] || '';
+  assert.match(componentCss, /\.kikoeru-strm-admin \.strm-btn\{/);
+  assert.match(componentCss, /\.kikoeru-strm-admin \.strm-btn--outline/);
+  assert.match(componentCss, /\.kikoeru-strm-admin \.strm-btn--primary/);
+  assert.match(componentCss, /\.kikoeru-strm-admin \.strm-btn--negative/);
+  assert.match(componentCss, /\.kikoeru-strm-admin \.strm-card-actions\{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px;padding:12px 20px;border-top:1px solid var\(--strm-border\)\}/);
+  assert.match(componentCss, /@media \(max-width:700px\)[\s\S]*\.kikoeru-strm-admin \.strm-card-actions\{justify-content:flex-start;padding:12px 16px\}/);
+  assert.match(componentCss, /\.kikoeru-strm-admin \.strm-btn:active/);
+  assert.match(componentCss, /\.kikoeru-strm-admin \.strm-btn:focus-visible/);
+  assert.match(componentCss, /\.kikoeru-strm-admin \.strm-btn--loading/);
+  assert.match(componentCss, /\.kikoeru-strm-admin \.strm-btn\{[^}]*box-sizing:border-box[^}]*height:36px[^}]*min-height:36px[^}]*padding:0 16px[^}]*border-radius:3px/);
+  assert.match(componentCss, /\.kikoeru-strm-admin \.strm-btn--dense\{height:32px;min-height:32px;padding:0 12px\}/);
+  assert.match(componentCss, /\.kikoeru-strm-admin \.strm-btn__content\{[^}]*height:100%;min-height:0;/);
+  for (const id of ['refresh', 'save', 'cleanup']) {
+    const button = ADMIN_HTML.match(new RegExp(`<button id="${id}"[\\s\\S]*?<\\/button>`))?.[0] || '';
+    assert.ok(button, `${id} action button remains in the page`);
+    assert.match(button, /class="strm-btn [^"]*"/);
+    assert.doesNotMatch(button, /\bq-btn(?:--|\b)/, `${id} must not depend on global Quasar q-btn CSS`);
+    assert.match(button, /strm-btn__content/);
+    assert.match(button, /strm-btn__icon/);
+    assert.match(button, /strm-btn__label/);
+    assert.match(button, /strm-btn__spinner/);
+  }
+  assert.match(ADMIN_HTML, /id="refresh" class="strm-btn strm-btn--outline strm-btn--dense"/);
+  assert.match(ADMIN_HTML, /id="save" class="strm-btn strm-btn--primary"/);
+  assert.match(ADMIN_HTML, /id="cleanup" class="strm-btn strm-btn--negative strm-btn--dense"/);
+  assert.equal((ADMIN_HTML.match(/<div class="q-card__actions strm-card-actions">/g) || []).length, 3);
+  for (const id of ['refresh', 'save', 'cleanup']) {
+    assert.match(ADMIN_HTML, new RegExp(`<div class="q-card__actions strm-card-actions">[\\s\\S]*?id="${id}"`), `${id} stays inside the scoped action row`);
+  }
+  assert.doesNotMatch(componentCss, /(^|[{},])\s*\.strm-btn(?:[\s.{:#\[]|$)/m, 'button CSS must be rooted at the STRM component');
+});
+
 class AdminUiFakeClassList {
   constructor(value = '') { this.values = new Set(String(value).split(/\s+/).filter(Boolean)); }
   add(...values) { values.forEach(value => this.values.add(value)); }
@@ -980,15 +1014,18 @@ class AdminUiFakeElement {
     this.innerHTML = '';
     this.value = '';
     this.checked = false;
+    this.disabled = false;
   }
+  get className() { return this.classList.toString(); }
+  set className(value) { this.setAttribute('class', value); }
   get nextSibling() {
     if (!this.parentNode) return null;
     const index = this.parentNode.children.indexOf(this);
     return index < 0 ? null : this.parentNode.children[index + 1] || null;
   }
-  setAttribute(name, value) { this.attrs[name] = String(value); if (name === 'class') this.classList = new AdminUiFakeClassList(value); }
+  setAttribute(name, value) { this.attrs[name] = String(value); if (name === 'class') this.classList = new AdminUiFakeClassList(value); if (name === 'disabled') this.disabled = true; }
   getAttribute(name) { return Object.hasOwn(this.attrs, name) ? this.attrs[name] : null; }
-  removeAttribute(name) { delete this.attrs[name]; }
+  removeAttribute(name) { delete this.attrs[name]; if (name === 'disabled') this.disabled = false; }
   appendChild(child) { if (child.parentNode) child.parentNode.removeChild(child); child.parentNode = this; this.children.push(child); return child; }
   insertBefore(child, before) { if (child.parentNode) child.parentNode.removeChild(child); child.parentNode = this; const index = before ? this.children.indexOf(before) : -1; if (index < 0) this.children.push(child); else this.children.splice(index, 0, child); return child; }
   removeChild(child) { const index = this.children.indexOf(child); if (index >= 0) { this.children.splice(index, 1); child.parentNode = null; } return child; }
@@ -1195,6 +1232,154 @@ test('STRM admin runtime loads config and keeps save/cleanup API contracts', asy
   const cleanupCall = calls.find(call => call.options && call.options.method === 'POST');
   assert.ok(cleanupCall);
   assert.equal(cleanupCall.url, '/api/admin/strm/cleanup');
+});
+
+test('STRM admin actions disable all action buttons and restore loading state', async () => {
+  const ids = ['status', 'metrics', 'rawMetrics', 'enabled', 'redirectMode', 'preloadMode', 'detectHead', 'redirectCacheTtlMs', 'coldCacheEnabled', 'maxTotalBytes', 'maxFileBytes', 'maxVideoBytes', 'maxAgeMs', 'loudnessEnabled', 'loudnessAudioOnly', 'loudnessMethod', 'cacheUsage', 'cacheLimit', 'cacheState', 'cacheProgress', 'refresh', 'save', 'cleanup', 'message'];
+  const elements = new Map(ids.map(id => [id, new AdminUiFakeElement(id === 'status' ? 'div' : 'input', { id })]));
+  for (const [id, className] of [['refresh', 'strm-btn strm-btn--outline strm-btn--dense'], ['save', 'strm-btn strm-btn--primary'], ['cleanup', 'strm-btn strm-btn--negative strm-btn--dense']]) {
+    elements.get(id).setAttribute('class', className);
+  }
+  const root = new AdminUiFakeElement('main', { id: 'strm-admin-content', class: 'q-page kikoeru-strm-admin' });
+  const body = new AdminUiFakeElement('body');
+  body.appendChild(root);
+  const document = {
+    body, documentElement: body,
+    getElementById(id) { return id === 'strm-admin-content' ? root : elements.get(id) || null; },
+    querySelectorAll() { return []; },
+  };
+  const status = { enabled: true, cacheBytes: 3 * 1024 * 1024, records: [{ id: 1 }], config: { redirectMode: 'local', preloadGuard: { mode: 'observe', detectHead: true }, redirectResolve: { cacheTtlMs: 12000 }, coldCache: { enabled: true, maxTotalBytes: 4 * 1024 * 1024, maxFileBytes: 5 * 1024 * 1024, maxVideoBytes: 6 * 1024 * 1024, maxAgeMs: 7 * 24 * 60 * 60 * 1000 }, loudness: { enabled: true, audioOnly: false, method: 'ebur128' } }, queue: {}, redirect: {}, metrics: {} };
+  const calls = [];
+  const response = data => ({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(data)) });
+  const failureResponse = message => ({ ok: false, status: 503, text: () => Promise.resolve(JSON.stringify({ message })) });
+  const deferred = () => {
+    let resolve;
+    let reject;
+    const promise = new Promise((resolvePromise, rejectPromise) => { resolve = resolvePromise; reject = rejectPromise; });
+    return { promise, resolve, reject };
+  };
+  let nextStatus = null;
+  let nextPut = null;
+  let nextPost = null;
+  let confirmations = 0;
+  const window = {
+    location: { pathname: '/admin/strm' },
+    localStorage: { getItem(key) { return key === 'jwt-token' ? '__q_strn|fixture-jwt' : null; } },
+    fetch(url, options) {
+      calls.push({ url, options });
+      if (url === '/api/strm/status' && nextStatus) { const pending = nextStatus; nextStatus = null; return pending.promise; }
+      if (url === '/api/admin/strm' && nextPut) { const pending = nextPut; nextPut = null; return pending.promise; }
+      if (url === '/api/admin/strm/cleanup' && nextPost) { const pending = nextPost; nextPost = null; return pending.promise; }
+      return Promise.resolve(response(status));
+    },
+    addEventListener() {},
+    confirm() { confirmations += 1; return true; },
+  };
+  const context = vm.createContext({ window, document, localStorage: window.localStorage, fetch: window.fetch.bind(window), Promise, Object, Number, String, Boolean, JSON });
+  const runtime = ADMIN_HTML.match(/<script data-strm-admin-script>([\s\S]*?)<\/script>/)[1];
+  new vm.Script(runtime).runInContext(context);
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+
+  const action = id => elements.get(id);
+  const refreshStatus = deferred();
+  nextStatus = refreshStatus;
+  const refreshPromise = action('refresh').onclick();
+  assert.equal(action('refresh').disabled, true);
+  assert.equal(action('refresh').getAttribute('disabled'), '');
+  assert.equal(action('refresh').getAttribute('aria-busy'), 'true');
+  assert.equal(action('refresh').classList.contains('strm-btn--loading'), true);
+  for (const id of ['save', 'cleanup']) {
+    assert.equal(action(id).disabled, true, `${id} is disabled during refresh`);
+    assert.equal(action(id).getAttribute('aria-disabled'), 'true');
+    assert.equal(action(id).classList.contains('strm-btn--loading'), false);
+  }
+  assert.equal(await action('save').onclick(), false, 'a second action is ignored while refresh is pending');
+  assert.equal(calls.filter(call => call.url === '/api/admin/strm').length, 0);
+  refreshStatus.resolve(response(status));
+  await refreshPromise;
+  for (const id of ['refresh', 'save', 'cleanup']) {
+    assert.equal(action(id).disabled, false, `${id} is restored after refresh`);
+    assert.equal(action(id).getAttribute('disabled'), null);
+    assert.equal(action(id).getAttribute('aria-disabled'), 'false');
+    assert.equal(action(id).getAttribute('aria-busy'), 'false');
+    assert.equal(action(id).classList.contains('strm-btn--loading'), false);
+  }
+
+  const pendingPut = deferred();
+  nextPut = pendingPut;
+  const savePromise = action('save').onclick();
+  assert.equal(action('save').disabled, true);
+  assert.equal(action('save').classList.contains('strm-btn--loading'), true);
+  assert.equal(action('refresh').disabled, true);
+  pendingPut.resolve(response(status));
+  await savePromise;
+  assert.equal(action('message').textContent, '已保存');
+  assert.equal(action('save').disabled, false);
+
+  window.confirm = () => { confirmations += 1; return false; };
+  assert.equal(await action('cleanup').onclick(), false, 'cleanup still requires confirmation');
+  assert.equal(confirmations, 1);
+  assert.equal(calls.filter(call => call.url === '/api/admin/strm/cleanup').length, 0);
+
+  window.confirm = () => { confirmations += 1; return true; };
+  const pendingPost = deferred();
+  nextPost = pendingPost;
+  const cleanupPromise = action('cleanup').onclick();
+  assert.equal(action('cleanup').disabled, true);
+  assert.equal(action('cleanup').classList.contains('strm-btn--loading'), true);
+  assert.equal(action('refresh').disabled, true);
+  assert.equal(await action('cleanup').onclick(), false, 'duplicate cleanup is ignored');
+  assert.equal(confirmations, 2);
+  pendingPost.resolve(response(status));
+  await cleanupPromise;
+  assert.equal(action('message').textContent, '清理完成');
+  assert.equal(action('cleanup').disabled, false);
+
+  const failedStatus = deferred();
+  nextStatus = failedStatus;
+  const failedRefresh = action('refresh').onclick();
+  assert.equal(action('refresh').disabled, true);
+  failedStatus.resolve(failureResponse('fixture status failure'));
+  assert.equal(await failedRefresh, false);
+  assert.match(action('message').textContent, /fixture status failure/);
+  assert.equal(action('status').classList.contains('err'), true);
+  assert.equal(action('refresh').disabled, false);
+  assert.equal(action('save').disabled, false);
+  assert.equal(action('cleanup').disabled, false);
+});
+
+test('STRM admin consumes an initial status failure after showing the error', async () => {
+  const elements = new Map(['status', 'refresh', 'save', 'cleanup', 'message'].map(id => [id, new AdminUiFakeElement(id === 'status' ? 'div' : 'button', { id })]));
+  const root = new AdminUiFakeElement('main', { id: 'strm-admin-content', class: 'q-page kikoeru-strm-admin' });
+  const body = new AdminUiFakeElement('body');
+  body.appendChild(root);
+  const document = {
+    body, documentElement: body,
+    getElementById(id) { return id === 'strm-admin-content' ? root : elements.get(id) || null; },
+    querySelectorAll() { return []; },
+  };
+  const window = {
+    location: { pathname: '/admin/strm' },
+    localStorage: { getItem() { return null; } },
+    fetch() { return Promise.reject(new Error('initial fixture failure')); },
+    addEventListener() {},
+  };
+  const context = vm.createContext({ window, document, localStorage: window.localStorage, fetch: window.fetch.bind(window), Promise, Object, Number, String, Boolean, JSON });
+  const runtime = ADMIN_HTML.match(/<script data-strm-admin-script>([\s\S]*?)<\/script>/)[1];
+  const unhandled = [];
+  const onUnhandled = reason => unhandled.push(reason);
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    new vm.Script(runtime).runInContext(context);
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+  } finally {
+    process.removeListener('unhandledRejection', onUnhandled);
+  }
+  assert.deepEqual(unhandled, [], 'initial load failure is consumed');
+  assert.equal(elements.get('message').textContent, 'initial fixture failure');
+  assert.match(elements.get('status').innerHTML, /加载失败：initial fixture failure/);
 });
 
 test('STRM media recovery waits through pauses and reloads one stalled long-pause stream', () => {

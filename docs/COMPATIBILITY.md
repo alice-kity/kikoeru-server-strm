@@ -1,13 +1,13 @@
 # 兼容性与升级边界
 
-本文件定义 `kikoeru-strm-plugin` `0.1.2` 的可验证兼容范围。它不是对任意
+本文件定义 `kikoeru-strm-plugin` `0.1.3` 的可验证兼容范围。它不是对任意
 Kikoeru 版本、任意 STRM 格式或任意 CDN 的承诺。
 
 ## 固定基线
 
-| 项目 | `0.1.2` 固定值 |
+| 项目 | `0.1.3` 固定值 |
 | --- | --- |
-| 适配器版本 | `0.1.2` |
+| 适配器版本 | `0.1.3` |
 | 上游应用版本 | `number17/kikoeru` `0.6.15` |
 | 上游镜像引用 | `number17/kikoeru@sha256:e934185b734b35e15fcdf62d96e65445edb1979ba0ed25d23d08679abda65c1c` |
 | 上游 digest | `sha256:e934185b734b35e15fcdf62d96e65445edb1979ba0ed25d23d08679abda65c1c` |

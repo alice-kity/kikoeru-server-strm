@@ -205,7 +205,7 @@ test('compose and env templates expose only configurable Helper hosts', () => {
   assert.doesNotMatch(compose, /STRM_FINAL_ALLOWED_HOSTS/);
   assert.doesNotMatch(envExample, /STRM_FINAL_ALLOWED_HOSTS/);
   assert.match(envExample, /KIKOERU_STRM_PORT=12346/);
-  assert.match(envExample, /KIKOERU_STRM_IMAGE=kikoeru-strm:0\.1\.2/);
+  assert.match(envExample, /KIKOERU_STRM_IMAGE=kikoeru-strm:0\.1\.3/);
   assert.match(envExample, /host\[:port\].*no|host\[:port\]/i);
 });
 

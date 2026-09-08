@@ -3,7 +3,7 @@ set -euo pipefail
 
 IMAGE="${KIKOERU_UPSTREAM_IMAGE:-number17/kikoeru:latest}"
 EXPECTED_DIGEST="sha256:e934185b734b35e15fcdf62d96e65445edb1979ba0ed25d23d08679abda65c1c"
-TARGET_IMAGE="${KIKOERU_STRM_IMAGE:-kikoeru-strm:0.1.2}"
+TARGET_IMAGE="${KIKOERU_STRM_IMAGE:-kikoeru-strm:0.1.3}"
 
 docker pull "$IMAGE" >/dev/null
 actual_digest="$(docker image inspect "$IMAGE" --format '{{index .RepoDigests 0}}' | sed 's/.*@//')"

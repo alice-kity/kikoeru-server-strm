@@ -1,6 +1,6 @@
 # 独立 STRM 实例运维
 
-本文针对发布 `0.1.2`。项目是 `number17/kikoeru` `0.6.15` 的版本化 overlay，
+本文针对发布 `0.1.3`。项目是 `number17/kikoeru` `0.6.15` 的版本化 overlay，
 只管理独立 compose 项目 `kikoeru-strm`：容器 `kikoeru-strm-12346`，宿主端口
 `12346`。生产容器 `kikoeru` 使用的 `12345`、配置、SQLite、FUSE 原件和媒体数据
 不属于本项目，任何操作都不得触碰它们。
@@ -34,7 +34,7 @@ read -r -p 'Helper host[:port] (keep private): ' STRM_HELPER_HOST
   --media /media/MP_movieDB/NSFW/Voice1 \
   --helper "$STRM_HELPER_HOST" \
   --port 12346 \
-  --image kikoeru-strm:0.1.2
+  --image kikoeru-strm:0.1.3
 unset STRM_HELPER_HOST
 ```
 
@@ -123,7 +123,7 @@ cp -a deploy/runtime/config deploy/runtime/sqlite deploy/runtime/covers "$backup
 ```sh
 ./scripts/manage.sh upgrade
 # 若要切换到已经存在的本地镜像：
-./scripts/manage.sh upgrade --image kikoeru-strm:0.1.2
+./scripts/manage.sh upgrade --image kikoeru-strm:0.1.3
 docker compose ps
 curl -fsS http://127.0.0.1:12346/api/health
 ```

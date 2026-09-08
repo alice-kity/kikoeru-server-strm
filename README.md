@@ -1,6 +1,6 @@
 # Kikoeru STRM 播放适配器
 
-发布版本：`0.1.2`。这是一个面向 `number17/kikoeru` 应用 `0.6.15` 的
+发布版本：`0.1.3`。这是一个面向 `number17/kikoeru` 应用 `0.6.15` 的
 版本化 Docker overlay：Kikoeru 扫描本地 STRM 指针，经过登录鉴权后由服务端
 向部署方配置的 Helper 发起一次 `HEAD`，再把客户端重定向到受控的 115 CDN。
 它不是 STRM 生成器，也不是通用 STRM 播放器。
@@ -60,7 +60,7 @@ read -r -p 'Helper host[:port] (keep private): ' STRM_HELPER_HOST
   --media /media/MP_movieDB/NSFW/Voice1 \
   --helper "$STRM_HELPER_HOST" \
   --port 12346 \
-  --image kikoeru-strm:0.1.2
+  --image kikoeru-strm:0.1.3
 unset STRM_HELPER_HOST
 ```
 
