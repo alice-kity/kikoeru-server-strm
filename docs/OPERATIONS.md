@@ -1,9 +1,15 @@
 # 独立 STRM 实例运维
 
-本文针对发布 `0.1.3`。项目是 `number17/kikoeru` `0.6.15` 的版本化 overlay，
+本文针对发布 `0.1.4`。项目是 `number17/kikoeru` `0.6.15` 的版本化 overlay，
 只管理独立 compose 项目 `kikoeru-strm`：容器 `kikoeru-strm-12346`，宿主端口
 `12346`。生产容器 `kikoeru` 使用的 `12345`、配置、SQLite、FUSE 原件和媒体数据
 不属于本项目，任何操作都不得触碰它们。
+
+`0.1.4` 跟进的是同一 `0.6.15` 应用版本的上游热更新 digest
+`sha256:864cf8445ead0d272ca69d449f0f47e4b6c413cc69392b996b70be8433f4c0e6`。镜像、
+指纹和接口已重新审查，确认只有 `filesystem/audioProcessor.js` 与 `routes/media.js`
+的响度接口变化；STRM 适配器逻辑不变，patch 仍使用 `patches/0.6.15/`。这些是静态
+审查结论，不声称已完成真实客户端或生产环境验证。
 
 ## 安装前检查
 
@@ -34,7 +40,7 @@ read -r -p 'Helper host[:port] (keep private): ' STRM_HELPER_HOST
   --media /media/MP_movieDB/NSFW/Voice1 \
   --helper "$STRM_HELPER_HOST" \
   --port 12346 \
-  --image kikoeru-strm:0.1.3
+  --image kikoeru-strm:0.1.4
 unset STRM_HELPER_HOST
 ```
 
@@ -123,7 +129,7 @@ cp -a deploy/runtime/config deploy/runtime/sqlite deploy/runtime/covers "$backup
 ```sh
 ./scripts/manage.sh upgrade
 # 若要切换到已经存在的本地镜像：
-./scripts/manage.sh upgrade --image kikoeru-strm:0.1.3
+./scripts/manage.sh upgrade --image kikoeru-strm:0.1.4
 docker compose ps
 curl -fsS http://127.0.0.1:12346/api/health
 ```
@@ -131,10 +137,11 @@ curl -fsS http://127.0.0.1:12346/api/health
 `upgrade` 默认重建 `.env` 中的 versioned image；`--image IMAGE` 只接受已经存在的
 本地镜像并更新 `.env` 后重建独立容器。
 
-升级脚本必须保留旧镜像 tag 和 `deploy/runtime`，先验证新实例，再清理旧镜像。上游
-升级不是简单改 tag：必须建立新的 `patches/<upstream-version>/` 目录，记录新的
-应用版本、镜像 digest 和受保护文件指纹，完成接口审查后才允许构建。任一版本或
-指纹不匹配都应让构建失败，不能静默套用 `0.6.15` patch。边界清单见
+升级脚本必须保留旧镜像 tag 和 `deploy/runtime`，先验证新实例，再清理旧镜像。本次
+`0.1.4` 是同一 `0.6.15` 应用版本的热更新：记录新的镜像 digest 和受保护文件指纹，
+完成接口审查后继续使用 `patches/0.6.15/`；上游应用版本变化时才必须建立新的
+`patches/<upstream-version>/` 目录。任一版本或指纹不匹配都应让构建失败，不能静默
+套用未审查的 patch。边界清单见
 [`COMPATIBILITY.md`](COMPATIBILITY.md)。
 
 回退流程：

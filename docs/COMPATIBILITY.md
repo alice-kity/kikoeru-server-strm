@@ -1,25 +1,36 @@
 # 兼容性与升级边界
 
-本文件定义 `kikoeru-strm-plugin` `0.1.3` 的可验证兼容范围。它不是对任意
+本文件定义 `kikoeru-strm-plugin` `0.1.4` 的可验证兼容范围。它不是对任意
 Kikoeru 版本、任意 STRM 格式或任意 CDN 的承诺。
 
 ## 固定基线
 
-| 项目 | `0.1.3` 固定值 |
+| 项目 | `0.1.4` 固定值 |
 | --- | --- |
-| 适配器版本 | `0.1.3` |
+| 适配器版本 | `0.1.4` |
 | 上游应用版本 | `number17/kikoeru` `0.6.15` |
-| 上游镜像引用 | `number17/kikoeru@sha256:e934185b734b35e15fcdf62d96e65445edb1979ba0ed25d23d08679abda65c1c` |
-| 上游 digest | `sha256:e934185b734b35e15fcdf62d96e65445edb1979ba0ed25d23d08679abda65c1c` |
+| 上游镜像引用 | `number17/kikoeru@sha256:864cf8445ead0d272ca69d449f0f47e4b6c413cc69392b996b70be8433f4c0e6` |
+| 上游 digest | `sha256:864cf8445ead0d272ca69d449f0f47e4b6c413cc69392b996b70be8433f4c0e6` |
 | overlay 目录 | `patches/0.6.15/strm-adapter/` |
 | 独立容器/端口 | `kikoeru-strm-12346` / `12346` |
 | 生产端口 | `12345`，不属于本项目 |
 
 构建必须通过 `scripts/verify-upstream.js`。它会校验扫描、路由、配置、认证、数据库、
-worker fork 和前端注入入口；精确文件清单及 SHA-256 以该脚本中的 `EXPECTED` 为准。
+worker fork、响度处理和前端注入入口；精确文件清单及 SHA-256 以该脚本中的 `EXPECTED`
+为准。
 
-版本、digest 或任一指纹变化都属于高风险兼容性事件，不得直接复用旧 patch。应
-新增 `patches/<新上游版本>/`，重新确认接口并保留旧镜像 tag，之后才可发布新适配器。
+本版本是 `0.6.15` 的同版本热更新，不是 Kikoeru 应用版本升级。重新提取和接口审查
+确认只有 `dist/src/filesystem/audioProcessor.js` 与 `dist/src/routes/media.js` 变化：
+前者新增 `calculateLUFSSplitWithOption`，后者改为调用
+`calculateLUFSSplitWithOption(fileName, 'ebur128')`。适配器自己的 STRM 响度由
+`cache-manager` 处理，普通本地媒体仍由上游 `next()` 处理，因此不需要修改 STRM
+适配器逻辑；patch 顶层目录继续是 `patches/0.6.15/`。本文件记录镜像、指纹和接口
+审查，不声称已完成真实客户端或生产环境验证。
+
+应用版本、digest 或任一指纹变化都属于高风险兼容性事件，不得未经审查直接复用旧
+patch。若应用版本变化，应新增 `patches/<新上游版本>/`；同一应用版本的热更新只有
+在完成接口复核、更新验证清单并记录变化后，才能继续使用对应版本目录。两种情况都
+应保留旧镜像 tag，之后才可发布新适配器。
 
 ## 接口保护边界
 
@@ -75,9 +86,10 @@ worker fork 和前端注入入口；精确文件清单及 SHA-256 以该脚本�
 发生上游升级时，按顺序完成并保存证据：
 
 1. 拉取目标镜像并记录不可变 digest；不要只记录 `latest`。
-2. 提取目标镜像，确认应用版本，计算 `filesystem/utils.js`、`routes/media.js`、
-   `app.js` 等受保护接口指纹。
-3. 新建对应的 `patches/<version>/strm-adapter/`，不在旧目录上覆盖；审查扫描、
+2. 提取目标镜像，确认应用版本，计算 `filesystem/audioProcessor.js`、
+   `filesystem/utils.js`、`routes/media.js`、`app.js` 等受保护接口指纹。
+3. 若应用版本变化，新建对应的 `patches/<version>/strm-adapter/`；若只是同版本 digest
+   热更新，只有在完成接口复核后才更新该版本的验证清单。两者都要审查扫描、
    `getTrackList`、媒体路由、loudnorm、转码入口、Express/JWT 中间件和 fork worker。
 4. 重新验证 Helper `HEAD → 3xx absolute Location → .115cdn.net` 契约、Range/seek、
    冷下载原子改名、状态文件和日志脱敏。

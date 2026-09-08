@@ -10,8 +10,8 @@ umask 077
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 PROJECT_DIR="${KIKOERU_PROJECT_DIR:-$(cd -- "${SCRIPT_DIR}/.." && pwd -P)}"
 ENV_PATH=''
-UPSTREAM_IMAGE='number17/kikoeru@sha256:e934185b734b35e15fcdf62d96e65445edb1979ba0ed25d23d08679abda65c1c'
-DEFAULT_IMAGE='kikoeru-strm:0.1.3'
+UPSTREAM_IMAGE='number17/kikoeru@sha256:864cf8445ead0d272ca69d449f0f47e4b6c413cc69392b996b70be8433f4c0e6'
+DEFAULT_IMAGE='kikoeru-strm:0.1.4'
 SERVICE='kikoeru-strm'
 CONTAINER='kikoeru-strm-12346'
 TEMP_ENV=''

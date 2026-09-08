@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IMAGE="${KIKOERU_UPSTREAM_IMAGE:-number17/kikoeru:latest}"
-EXPECTED_DIGEST="sha256:e934185b734b35e15fcdf62d96e65445edb1979ba0ed25d23d08679abda65c1c"
-TARGET_IMAGE="${KIKOERU_STRM_IMAGE:-kikoeru-strm:0.1.3}"
+IMAGE="${KIKOERU_UPSTREAM_IMAGE:-number17/kikoeru@sha256:864cf8445ead0d272ca69d449f0f47e4b6c413cc69392b996b70be8433f4c0e6}"
+EXPECTED_DIGEST="sha256:864cf8445ead0d272ca69d449f0f47e4b6c413cc69392b996b70be8433f4c0e6"
+TARGET_IMAGE="${KIKOERU_STRM_IMAGE:-kikoeru-strm:0.1.4}"
 
 docker pull "$IMAGE" >/dev/null
 actual_digest="$(docker image inspect "$IMAGE" --format '{{index .RepoDigests 0}}' | sed 's/.*@//')"
@@ -12,8 +12,12 @@ if [ "$actual_digest" != "$EXPECTED_DIGEST" ]; then
   exit 1
 fi
 
-if [ -d tmp/kikoeru-container ]; then
-  node scripts/verify-upstream.js tmp/kikoeru-container
+if [ -n "${KIKOERU_UPSTREAM_ROOT:-}" ]; then
+  node scripts/verify-upstream.js "$KIKOERU_UPSTREAM_ROOT"
 fi
 docker build --pull=false --build-arg UPSTREAM_IMAGE="$IMAGE" -t "$TARGET_IMAGE" .
-echo "built $TARGET_IMAGE from $IMAGE@$EXPECTED_DIGEST"
+display_image="$IMAGE"
+if [[ "$IMAGE" != *@* ]]; then
+  display_image="$IMAGE@$actual_digest"
+fi
+echo "built $TARGET_IMAGE from $display_image"

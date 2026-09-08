@@ -1,4 +1,4 @@
-ARG UPSTREAM_IMAGE=number17/kikoeru:latest
+ARG UPSTREAM_IMAGE=number17/kikoeru@sha256:864cf8445ead0d272ca69d449f0f47e4b6c413cc69392b996b70be8433f4c0e6
 FROM ${UPSTREAM_IMAGE}
 
 WORKDIR /usr/src/kikoeru

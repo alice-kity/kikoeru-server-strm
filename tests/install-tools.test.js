@@ -10,7 +10,7 @@ const test = require('node:test');
 const projectRoot = path.resolve(__dirname, '..');
 const installScript = path.join(projectRoot, 'scripts', 'install.sh');
 const manageScript = path.join(projectRoot, 'scripts', 'manage.sh');
-const upstreamDigest = 'sha256:e934185b734b35e15fcdf62d96e65445edb1979ba0ed25d23d08679abda65c1c';
+const upstreamDigest = 'sha256:864cf8445ead0d272ca69d449f0f47e4b6c413cc69392b996b70be8433f4c0e6';
 
 function writeExecutable(filePath, source) {
   fs.writeFileSync(filePath, source, { mode: 0o700 });
@@ -205,7 +205,7 @@ test('compose and env templates expose only configurable Helper hosts', () => {
   assert.doesNotMatch(compose, /STRM_FINAL_ALLOWED_HOSTS/);
   assert.doesNotMatch(envExample, /STRM_FINAL_ALLOWED_HOSTS/);
   assert.match(envExample, /KIKOERU_STRM_PORT=12346/);
-  assert.match(envExample, /KIKOERU_STRM_IMAGE=kikoeru-strm:0\.1\.3/);
+  assert.match(envExample, /KIKOERU_STRM_IMAGE=kikoeru-strm:0\.1\.4/);
   assert.match(envExample, /host\[:port\].*no|host\[:port\]/i);
 });
 

@@ -6,10 +6,11 @@ const path = require('path');
 
 const EXPECTED_VERSION = '0.6.15';
 const EXPECTED = Object.freeze({
+  'dist/src/filesystem/audioProcessor.js': 'a5cb43f9997cf1c560c4e2edb1239f323c38098fed78d03d2569259d8ce643a9',
   'dist/src/filesystem/utils.js': 'e4d4af382e0e5221a5370ac16e6a51a0a6bda34ee6dddebe5911b93b9407d6e7',
   'dist/src/filesystem/scanner.js': '01f32be8422444cfad91a2495e35b748d6121256d9972ff99eb31bc7d0e6f881',
   'dist/src/filesystem/workFileScanner.js': '2ea04791bf11ae1e38d8306fc4940f22bcd85a6142e00c6d7d58135bc8180f1b',
-  'dist/src/routes/media.js': '803284fe7388b51d56099955cff4a698824ed789dc0fb4ed9a24d80762c49f1d',
+  'dist/src/routes/media.js': '88366bf7f4c93739ca30a47d7e0b4a2dca88fc870c01b4b1d88b1967fadfa92e',
   'dist/src/routes/index.js': '912ee0779fd737d095b6e7258ddf9a5f9525ab53256e3d4a559881e05439f69a',
   'dist/src/config.js': 'a77c47dbae7092f2ac90fabdf48504a6a297cb50091c84a922bbb930d35e9417',
   'dist/src/auth/utils.js': '56d8e1e74efc5bd35ed3f09722b4df80d8c25e5cdb15f2f2a7a7f51b89098516',

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.4 — 0.6.15 同版本上游热更新
+
+### 变更
+
+- 将默认上游锁定到 `number17/kikoeru` `0.6.15` 的新 digest
+  `sha256:864cf8445ead0d272ca69d449f0f47e4b6c413cc69392b996b70be8433f4c0e6`，并重新
+  审查构建指纹。
+- 审查确认上游仅变更 `filesystem/audioProcessor.js` 与 `routes/media.js` 的响度接口：
+  前者新增 `calculateLUFSSplitWithOption`，后者调用 `ebur128` 选项；适配器 STRM
+  响度由自己的 cache-manager 处理，普通本地媒体继续交给上游，因而不修改适配器逻辑。
+- patch 顶层目录继续按应用版本使用 `patches/0.6.15/`。
+
+### 验证边界
+
+- 本次是同版本热更新，不是 Kikoeru 应用版本升级；已完成镜像、SHA-256 和接口审查，
+  不声称已完成真实客户端或生产环境验证。
+
 ## 0.1.3 — 管理按钮一致性修正
 
 ### 变更
