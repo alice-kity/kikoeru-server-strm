@@ -1,6 +1,6 @@
 # 兼容性与升级边界
 
-当前插件 `0.2.0` 只适配经审查的 `Kikoeru 0.6.17-20261007`。
+当前插件 `0.2.6` 只适配经审查的 `Kikoeru 0.6.17-20261007`。
 
 | 项目 | 当前基线 |
 | --- | --- |
@@ -32,12 +32,17 @@
 | `/api/media/download/:id/:seq` | 受控 CDN 302 |
 | `/api/media/calculate/loudnorm/:id/:seq` | 兼容响度响应；共享任务并读取原生 LUFS |
 | `/api/media/task/loudnorm/{status,start,stream_notify,result}/:id/:seq` | 原生风格任务状态、启动、终态 SSE、结果；pending/failed/done 明确 |
-| `/api/media/task/{waveform,transcode}/*` | STRM 明确不支持，通知必须终止；普通媒体继续原生 |
+| `/api/media/task/waveform/{status,start,stream_notify,result}/:id/:seq` | 完整缓存上的原生波形任务；KWAV 持久化、结果等待、SSE、分辨率合并；视频或超限跳过 |
+| `/api/media/task/transcode/*` | STRM 明确不支持，通知必须终止；普通媒体继续原生 |
 | `/api/media/{transcode,pre-transcode}/*` | STRM 明确拒绝；内置客户端按曲禁用转码 |
 | `/api/admin/strm`、`/api/strm/{status,config}` | JWT + admin，状态不返回指针或 CDN URL |
-| `/api/admin/strm/cleanup` | 清理临时完整媒体与孤儿 part，原生已保存 LUFS 保留 |
+| `/api/admin/strm/cleanup` | 清理临时完整媒体与孤儿 part；保护分析中的输入，已保存 LUFS 和波形保留 |
 
-`/api/caniuse` 保留全局原生能力，STRM 的限制按曲实施。未新增 STRM 波形功能。
+`/api/caniuse` 保留全局原生能力，STRM 的限制按曲实施。
+波形使用原生 KWAV/4 文件和 `t_track.waveform_*` 字段；指针变化使旧结果失效。
+实时频谱是独立的浏览器 Web Audio 功能：内置播放器仅为使用 Web Audio 的 STRM 请求
+`strm_local=1`，严格本地交付，不能缓存时返回 409，避免回退到会无声的跨域媒体。
+普通媒体保留原生 CORS；无 Web Audio 的 STRM 保持 direct 行为。
 客户端能力声明和真实 iOS 行为仍需客户端验收。
 
 ## 固定安全契约

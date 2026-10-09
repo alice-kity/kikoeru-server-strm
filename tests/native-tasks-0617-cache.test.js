@@ -9,6 +9,7 @@ const test = require('node:test');
 
 const { StrmCacheManager } = require('../patches/0.6.17/strm-adapter/cache-manager');
 const { StrmStateStore } = require('../patches/0.6.17/strm-adapter/state-store');
+const { ensureStrmLocal, handleStrmPlayback } = require('../patches/0.6.17/strm-adapter/runtime');
 
 const payload = Buffer.from('complete-fixture-media');
 
@@ -128,6 +129,70 @@ test('truncated Content-Length download rejects and removes its .part file', asy
   const files = await fs.promises.readdir(fx.cache.limits.rootDir);
   assert.equal(files.some(name => name.endsWith('.part')), false);
   assert.equal(files.some(name => /\.flac$/.test(name)), false);
+});
+
+test('runtime reuses a complete cache without resolving Helper again', async t => {
+  const fx = await fixture(t, (_req, res) => res.end(payload), { loudnessEnabled: false });
+  const track = { ...target(), pointer: { url: 'https://helper.invalid/media' } };
+  const runtime = {
+    cache: fx.cache,
+    options: { coldCache: { enabled: true }, ...downloadOptions(fx.baseUrl) },
+    redirectOptions: () => ({}),
+    scheduleLoudness() {},
+  };
+  let calls = 0;
+  const resolve = async () => {
+    if (++calls > 1) throw new Error('Helper is unavailable');
+    return { final: new URL(fx.baseUrl + '/audio') };
+  };
+  await ensureStrmLocal(runtime, track, resolve);
+  const reused = await ensureStrmLocal(runtime, track, resolve);
+  assert.equal(calls, 1);
+  assert.equal(reused.local.reused, true);
+  assert.deepEqual(await fs.promises.readFile(reused.local.path), payload);
+});
+
+test('successful local hot playback refreshes TTL and cannot touch a different fingerprint', async t => {
+  const fx = await fixture(t, (_req, res) => res.end(payload), { loudnessEnabled: false, maxAgeMs: 500 });
+  const track = target();
+  track.row.lufs = -18;
+  const downloaded = await fx.cache.ensureLocal(track, `${fx.baseUrl}/audio`, downloadOptions(fx.baseUrl));
+  await fx.store.upsert(track.key, { lastAccessAt: Date.now() - 1000 });
+  const runtime = {
+    cache: fx.cache, ready: Promise.resolve(), metrics: {},
+    options: { redirectMode: 'local', loudness: { enabled: true }, coldCache: { enabled: true }, preloadGuard: {} },
+  };
+  let sent;
+  await handleStrmPlayback({
+    req: { method: 'GET', headers: {} },
+    res: { setHeader() {}, sendFile(file) { sent = file; } },
+    runtime, target: track,
+    resolveFinal: async () => { throw new Error('local playback must not use Helper'); },
+  });
+  assert.equal(sent, downloaded.path);
+  assert.equal((await fx.cache.cleanup()).removed, 0);
+  await fx.store.upsert(track.key, { pointerFingerprint: 'b'.repeat(64), lastAccessAt: 1 });
+  await assert.rejects(fx.cache.touch(track), error => error.code === 'STRM_TARGET_CHANGED');
+  assert.equal((await fx.store.get(track.key)).lastAccessAt, 1);
+});
+
+test('playback callback tracks the real native analysis until cleanup can safely evict it', async t => {
+  const fx = await fixture(t, (_req, res) => res.end(payload), { maxTotalBytes: 1 });
+  const track = target();
+  let release;
+  const analysis = new Promise(resolve => { release = resolve; });
+  t.after(() => release());
+  const downloaded = await fx.cache.ensureLocal(track, `${fx.baseUrl}/audio`, {
+    ...downloadOptions(fx.baseUrl),
+    scheduleLoudness: current => fx.cache.trackAnalysis(current, analysis),
+  });
+  assert.equal(fx.cache.analysisPromises.get(track.key), analysis);
+  assert.equal((await fx.cache.cleanup()).removed, 0);
+  assert.deepEqual(await fs.promises.readFile(downloaded.path), payload);
+  release();
+  await analysis;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal((await fx.cache.cleanup()).removed, 1);
 });
 
 test('over-limit download is remembered as a policy skip until limits change', async t => {

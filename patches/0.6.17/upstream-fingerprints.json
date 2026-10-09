@@ -40,6 +40,8 @@
     "dist/src/public/css/app.50e2fd8f.css": "f3067479edd7b83dcdac4b11e4f917f712ca828cf833dbfccfdc736490b9300c",
     "dist/src/public/js/app.326cfdef.js": "30dad3eef72f05416489988fefd266349e80f69b647de66e9ad36ed068478a1d",
     "dist/src/public/js/vendor.a451c3fa.js": "48c99974f04ecda46bc569eafa53eeefce06625ebe974ac1f74c745b9b210c36",
-    "dist/src/public/js/2.052836f6.js": "6d657c22241150cb26344d2361aed39e95f4a0f14f14ee7c499034e7046f4e7b"
+    "dist/src/public/js/2.052836f6.js": "6d657c22241150cb26344d2361aed39e95f4a0f14f14ee7c499034e7046f4e7b",
+    "dist/src/filesystem/audioWaveform.js": "008d540835503d30d3704b9f8fdcd46f786c2059a50a2d1fa3218f4b31dbaa0c",
+    "dist/src/filesystem/waveformCodec.js": "a40937980c957297068cd621fb81e2597c0dad56d4af5f75b4de65be83d4e77c"
   }
 }

@@ -1,6 +1,6 @@
 # Kikoeru STRM 播放适配器
 
-发布版本：`0.2.0`，目标为 `number17/kikoeru` `0.6.17-20261007`，锁定镜像
+发布版本：`0.2.6`，目标为 `number17/kikoeru` `0.6.17-20261007`，锁定镜像
 `sha256:e78de6e4ac3eb8dbddffc84b31b3f10b809cb2baf3944fd3a5bfe0e5daa77391`。
 本地 STRM 指针进入原生曲目表，经过原生登录鉴权后，服务端向配置允许的 Helper
 发起 `HEAD`，只接受受控的 115 CDN 跳转。
@@ -9,13 +9,19 @@
 物理路径保留 `.strm`，客户端显示媒体名称；时长和 LUFS 主要保存在原生 SQLite。
 插件继续负责指针/Helper/CDN 校验、限速、429 退避、UA 匹配、完整冷缓存及热播放 302。
 新版响度使用原生只读 ebur128 分析器，旧 `loudnorm` 方法配置归一化为 `ebur128`；
-新旧响度接口共享原生任务；STRM 波形和转码明确不支持，普通媒体能力保留。
+新旧响度接口共享原生任务。STRM 波形复用完整冷缓存生成并持久保存；STRM 转码仍禁用，普通媒体能力保留。
+
+波形在首次完整下载或客户端请求时计算：数据保存为原生 KWAV 文件，SQLite 保存路径、
+格式、分辨率和更新时间。以后直接读取，完整媒体缓存过期或应用重启不会删除波形；
+指针内容变化会使旧结果失效。不会在服务启动时下载全库。
+原生实时频谱由浏览器 Web Audio 计算，不读取波形缓存。开启可视化时 STRM 自动采用
+本地交付以避免跨域无声；媒体缓存被清理后可能需要重新下载。关闭可视化并重载播放器后恢复直连。
 
 新版 overlay 位于 `patches/0.6.17/`；旧 `patches/0.6.15/` 与其指纹基线保留。
 数据库升级后回退需要恢复匹配的配置与 SQLite 备份，不能只换旧镜像。
 设计与验收命令见 [升级接入方案](docs/UPGRADE-0.6.17.md)，代码验收结果见
 [本地验收记录](docs/VALIDATION-0.6.17.md)，2026-10-09 业务实例升级另见
-[部署记录](docs/DEPLOYMENT-0.2.0.md)。
+[部署记录](docs/DEPLOYMENT-0.2.6.md)。
 
 安装和升级以 [`docs/OPERATIONS.md`](docs/OPERATIONS.md) 为准；上游边界和升级
 检查以 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) 为准。
@@ -73,7 +79,7 @@ read -r -p 'Helper host[:port] (keep private): ' STRM_HELPER_HOST
   --media /srv/kikoeru-media \
   --helper "$STRM_HELPER_HOST" \
   --port 12346 \
-  --image kikoeru-strm:0.2.0
+  --image kikoeru-strm:0.2.6
 unset STRM_HELPER_HOST
 ```
 
@@ -160,6 +166,6 @@ DashboardLayout 与 links 数组，因此切换到扫描、高级设置或其他
 专有状态只承担指纹、下载缓存和错误/重试信息；完整媒体缓存仍按容量和 TTL 管理，
 SQLite 内的响度结果不按条目数量淘汰。
 
-部署后的实际条目数、镜像和原生数据库迁移检查见[部署记录](docs/DEPLOYMENT-0.2.0.md)。
+部署后的实际条目数、镜像和原生数据库迁移检查见[部署记录](docs/DEPLOYMENT-0.2.6.md)。
 本地 fixture 验收不代表真实 115/CDN 或 iOS 验收；这些播放路径仍需真实客户端抽样验证
 跨域 302、UA、Range/seek 和长暂停恢复。

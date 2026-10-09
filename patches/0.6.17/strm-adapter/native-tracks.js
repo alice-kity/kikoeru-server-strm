@@ -2,6 +2,7 @@
 
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { createRequire } = require('module');
 const { DEFAULT_ALLOWED_SCHEMES, parsePointerText, pointerFingerprint, PointerError } = require('./pointer');
 const { DEFAULT_MEDIA_EXTENSIONS, parseVirtualMediaName } = require('./virtual-name');
@@ -136,7 +137,7 @@ function createTrackBridge(appRoot, runtime = {}, injected = {}) {
   }
 
   function durationProbeEnabled() {
-    return !(runtime.options && runtime.options.durationProbe && runtime.options.durationProbe.enabled === false);
+    return runtime.options?.enabled !== false && runtime.options?.durationProbe?.enabled !== false;
   }
 
   function probeIdentity(target) {
@@ -579,6 +580,14 @@ function createTrackBridge(appRoot, runtime = {}, injected = {}) {
       logWarn(`[STRM native] remote cache invalidation failed (${safeCode(error, 'INVALIDATE_FAILED')})`);
     }
     await clearProbeState(target);
+    const waveformPath = target.row && target.row.waveform_path;
+    if (waveformPath && config.audioCacheFolderDir) {
+      const absolute = path.resolve(config.audioCacheFolderDir, waveformPath);
+      if (isFilesystemPathInside(config.audioCacheFolderDir, absolute)) {
+        await fs.promises.rm(absolute, { force: true }).catch(() => undefined);
+      }
+    }
+    runtime.nativeWaveform?.invalidate(target);
     try {
       const cacheDir = config.audioCacheFolderDir;
       if (cacheDir && deps.audioCache && typeof deps.audioCache.deleteTrackCacheFiles === 'function') {
@@ -798,6 +807,53 @@ function createTrackBridge(appRoot, runtime = {}, injected = {}) {
     return validateTarget(target);
   }
 
+  async function readWaveform(target, format) {
+    if (!await validateTarget(target)) return null;
+    const row = target.row;
+    if (!row.waveform_path || row.waveform_format !== format || !config.audioCacheFolderDir) return null;
+    const absolute = path.resolve(config.audioCacheFolderDir, row.waveform_path);
+    if (!isFilesystemPathInside(config.audioCacheFolderDir, absolute)) return null;
+    try {
+      const buffer = await fs.promises.readFile(absolute);
+      return await validateTarget(target) ? buffer : null;
+    } catch (error) {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    }
+  }
+
+  async function persistWaveform(target, buffer, format, resolution) {
+    if (!config.audioCacheFolderDir || !Buffer.isBuffer(buffer) || !await validateTarget(target)) return false;
+    const previous = target.row.waveform_path;
+    // Each publication owns its file, so a stale task can remove its output
+    // without deleting a newer result for the same seq or fingerprint.
+    const relative = path.posix.join(String(target.workId), 'waveform',
+      `${target.seq}-strm-${target.pointerFingerprint}-${crypto.randomBytes(6).toString('hex')}.kwav`);
+    const absolute = path.join(config.audioCacheFolderDir, relative);
+    const temporary = absolute + '.tmp';
+    let accepted = false;
+    try {
+      await fs.promises.mkdir(path.dirname(absolute), { recursive: true });
+      await fs.promises.writeFile(temporary, buffer, { mode: 0o600, flag: 'wx' });
+      await fs.promises.rename(temporary, absolute);
+      if (!await validateTarget(target)) return false;
+      const wrote = affectedRows(await knex('t_track').where('id', target.row.id)
+        .andWhere('pointer_fingerprint', target.pointerFingerprint).update({
+          waveform_path: relative, waveform_format: format,
+          waveform_resolution: resolution, waveform_updated_at: Date.now(),
+        }));
+      accepted = wrote > 0 && await validateTarget(target);
+      if (accepted && previous && previous !== relative) {
+        const old = path.resolve(config.audioCacheFolderDir, previous);
+        if (isFilesystemPathInside(config.audioCacheFolderDir, old)) await fs.promises.rm(old, { force: true }).catch(() => undefined);
+      }
+      return accepted;
+    } finally {
+      await fs.promises.rm(temporary, { force: true }).catch(() => undefined);
+      if (!accepted) await fs.promises.rm(absolute, { force: true }).catch(() => undefined);
+    }
+  }
+
   async function targetForCurrentRow(row, loc, requestUA = DEFAULT_HELPER_USER_AGENT) {
     const work = await getWork(row.work_id);
     if (!work) return null;
@@ -928,6 +984,9 @@ function createTrackBridge(appRoot, runtime = {}, injected = {}) {
             probeAt: Date.now(),
           });
           await enqueueDurationProbe(target, async () => {
+            if (!durationProbeEnabled()) {
+              throw Object.assign(new Error('STRM duration probing is disabled'), { code: 'STRM_PROBE_DISABLED' });
+            }
             if (!await validateTarget(target)) {
               const error = Object.assign(new Error('STRM target changed before probe'), { code: 'POINTER_IDENTITY_STALE' });
               throw error;
@@ -953,6 +1012,9 @@ function createTrackBridge(appRoot, runtime = {}, injected = {}) {
           probeRetryAt.delete(probeIdentity(target));
           progress.succeeded += 1;
         } catch (error) {
+          // Turning off probing while a task is queued is not a remote
+          // failure. Leave it eligible immediately when the user re-enables.
+          if (error && error.code === 'STRM_PROBE_DISABLED') continue;
           progress.failed += 1;
           const code = safeCode(error);
           const failedIdentity = target ? probeIdentity(target) : `${Number(row.work_id)}/${Number(row.seq)}:unfingerprinted`;
@@ -1165,6 +1227,8 @@ function createTrackBridge(appRoot, runtime = {}, injected = {}) {
     validateTarget,
     persistDuration,
     persistLufs,
+    persistWaveform,
+    readWaveform,
     invalidateTarget,
     prepareTargetByPath,
     validateTargetPath,

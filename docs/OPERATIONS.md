@@ -1,14 +1,17 @@
 # 独立 STRM 实例运维
 
+当前发布为 `0.2.6`，仍使用锁定的 Kikoeru `0.6.17`。本次功能修复、波形持久化和
+12346 升级结果见 [0.2.6 记录](DEPLOYMENT-0.2.6.md)。下方 0.2.0 记录保留首次上游迁移历史。
+
 > 0.2.0 已在 2026-10-09 按单独授权升级到 Kikoeru 0.6.17。部署前备份了配套的
 > `deploy/runtime/config/` 与 `deploy/runtime/sqlite/`；完整运行状态、迁移结果和遗留项见
 > [0.2.0 部署记录](DEPLOYMENT-0.2.0.md)。回退必须先恢复同一时点的配置/SQLite，再使用旧
 > 0.1.4 镜像；禁止仅切换镜像继续写新版数据库。真实 115/CDN 与 iOS 播放验收仍待完成。
 
 
-本文针对插件 `0.2.0` / Kikoeru `0.6.17-20261007` 的版本化 overlay。
+本文针对插件 `0.2.6` / Kikoeru `0.6.17-20261007` 的版本化 overlay。
 目标 digest 固定为 `sha256:e78de6e4ac3eb8dbddffc84b31b3f10b809cb2baf3944fd3a5bfe0e5daa77391`，
-新 patch 位于 `patches/0.6.17/`。独立实例已升级到插件 0.2.0 / Kikoeru 0.6.17；
+新 patch 位于 `patches/0.6.17/`。独立实例已升级到插件 0.2.6 / Kikoeru 0.6.17；
 旧 overlay 和指纹基线保留，以便按配套备份回退。真实客户端/CDN 验收仍需后续执行。
 
 ## 新主机安装前检查
@@ -40,7 +43,7 @@ read -r -p 'Helper host[:port] (keep private): ' STRM_HELPER_HOST
   --media /srv/kikoeru-media \
   --helper "$STRM_HELPER_HOST" \
   --port 12346 \
-  --image kikoeru-strm:0.2.0
+  --image kikoeru-strm:0.2.6
 unset STRM_HELPER_HOST
 ```
 
@@ -133,7 +136,7 @@ printf '%s\n' "$upgrade_backup_dir"
 使用本地已构建的新镜像升级：
 
 ```sh
-./scripts/manage.sh upgrade --image kikoeru-strm:0.2.0
+./scripts/manage.sh upgrade --image kikoeru-strm:0.2.6
 docker compose ps
 curl -fsS http://127.0.0.1:12346/api/health
 ```
@@ -219,3 +222,20 @@ docker logs kikoeru-strm-12346 2>&1 | rg '\[STRM\]\[(scan|duration)\]'
 已知运行环境注意事项：原生实例 12345 的媒体目录使用 FUSE 时，Parcel watcher 可能报
 `State not recoverable`。本次已仅对 12345 关闭 file watcher；手动扫描仍可用。独立 STRM 实例
 12346 的 watcher 保持启用。实际部署和当前迁移核验状态见[0.2.0 部署记录](DEPLOYMENT-0.2.0.md)。
+
+## 0.2.6 波形与可视化
+
+STRM 音频首次完整缓存后同时调度响度和波形；客户端主动请求波形时也可以启动下载。
+任务共用完整媒体和原生分析队列，不在服务启动时下载整个媒体库。视频不计算波形。
+超过缓存大小限制时明确跳过；调高上限后可以立即重试。
+
+波形正文为原生 KWAV/4 文件，位于配置的 `audioCacheFolderDir` 下；默认是
+`/usr/src/kikoeru/sqlite/audio_cache/<workId>/waveform/`，包含在 Compose 的 SQLite 持久卷中。
+SQLite `t_track.waveform_*` 保存路径、格式、分辨率、更新时间。备份时要连同这些文件一起保存；
+如果自行修改 `audioCacheFolderDir`，应将该目录放入持久卷。
+媒体 TTL/容量清理不删除波形及 LUFS，分析中的输入暂不清理；指针内容改变会清除旧结果。
+
+浏览器实时频谱不读 KWAV，也不存数据库。开启可视化后，STRM 自动请求本地交付以供
+Web Audio 使用；完整音频已被清理时可能需要重下。缓存关闭或大小限制禁止本地交付时返回
+`STRM_LOCAL_DELIVERY_REQUIRED`（409）；可调整缓存策略，或关闭可视化并重载页面恢复直连。
+已创建的 Web Audio 连接在关闭开关后仍存在，因此要重载页面才会恢复 direct。

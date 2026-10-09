@@ -11,6 +11,7 @@ const adapterDir = path.resolve(__dirname, '../patches/0.6.17/strm-adapter');
 const { createNativeTasks, lufsPayload } = require(path.join(adapterDir, 'native-tasks'));
 const { StrmCacheManager } = require(path.join(adapterDir, 'cache-manager'));
 const { installRoutes } = require(path.join(adapterDir, 'integration'));
+const { createNativeWaveform } = require(path.join(adapterDir, 'native-waveform'));
 
 class FakeTaskRegistry {
   constructor() { this.tasks = new Map(); }
@@ -183,6 +184,61 @@ test('failed analyzer exposes only fixed safe error text and does not persist a 
   assert.equal(calls.persist.length, 0);
 });
 
+test('native registry forgets a finished policy skip immediately when limits change', async t => {
+  const target = makeTarget();
+  const fixture = await makeCacheFixture(t, target);
+  let policy = 'small-limit';
+  fixture.runtime.cache.analysisPolicyKey = () => policy;
+  const { tasks, calls } = buildNativeTasks({ runtime: fixture.runtime, target });
+  const skipped = tasks.startLoudnorm(target, {
+    ensureLocal: async () => { throw Object.assign(new Error('too large'), { code: 'DOWNLOAD_TOO_LARGE' }); },
+  });
+  await skipped.handle.promise;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(tasks.status(target).skipped, true);
+  policy = 'larger-limit';
+  assert.equal(tasks.status(target).ready, false);
+  assert.equal(tasks.status(target).state, 'absent');
+  const retry = tasks.startLoudnorm(target, { sourcePath: fixture.mediaPath });
+  await retry.handle.promise;
+  assert.equal(calls.analyze, 1);
+});
+
+test('waveform invalidation aborts analysis and never persists the stale result', async t => {
+  const target = makeTarget();
+  const fixture = await makeCacheFixture(t, target);
+  const registry = new FakeTaskRegistry();
+  let release, entered, current = true, persisted = 0, signal;
+  const gate = new Promise(resolve => { release = resolve; });
+  const running = new Promise(resolve => { entered = resolve; });
+  t.after(() => release());
+  Object.assign(fixture.runtime.cache, {
+    analysisPolicyKey: () => 'policy',
+    trackWaveform: (_target, promise) => { void promise.catch(() => undefined); return promise; },
+  });
+  const waveform = createNativeWaveform({
+    runtime: fixture.runtime,
+    trackBridge: {
+      validateTarget: async () => current, readWaveform: async () => null,
+      persistWaveform: async () => { persisted++; return true; },
+    },
+    mediaProcess: { waveformRegistry: registry, taskKey: (id, seq) => `${id}/${seq}` },
+    audioWaveform: { getAudioWaveform: async (_source, options) => { signal = options.signal; entered(); await gate; return {}; } },
+    waveformCodec: { WAVEFORM_VERSION: 4, encodeAudioWaveform: () => Buffer.from('wave') },
+    heavyTaskQueue: { add: fn => fn() },
+  });
+  const first = waveform.start(target, { sourcePath: fixture.mediaPath });
+  assert.equal(waveform.start(target, { sourcePath: fixture.mediaPath }).handle, first.handle);
+  await running;
+  current = false;
+  waveform.invalidate(target);
+  assert.equal(signal.aborted, true);
+  release();
+  await assert.rejects(first.handle.promise, error => error.code === 'STRM_TARGET_CHANGED');
+  assert.equal(persisted, 0);
+  assert.equal(registry.get('7/3'), undefined);
+});
+
 test('cache policy skip is durable without LUFS and becomes retryable after policy change', async () => {
   const state = new Map();
   const store = {
@@ -283,9 +339,9 @@ function findRoute(routesRouter, method, suffix) {
   return layer.handle;
 }
 
-test('STRM unsupported waveform and transcode routes return terminal 409, SSE closes', async () => {
+test('STRM unsupported transcode routes return terminal 409, SSE closes', async () => {
   const { routesRouter } = registerTestRoutes();
-  const taskReq = { params: { task: 'waveform', id: '7', seq: '3' }, query: {}, headers: {}, on() {}, removeListener() {} };
+  const taskReq = { params: { task: 'transcode', id: '7', seq: '3' }, query: {}, headers: {}, on() {}, removeListener() {} };
   const sse = fakeResponse();
   await findRoute(routesRouter, 'get', 'stream_notify')(taskReq, sse, () => assert.fail('should not fall through'));
   assert.equal(sse.statusCode, 200);

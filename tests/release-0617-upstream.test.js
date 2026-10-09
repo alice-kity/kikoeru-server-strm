@@ -73,7 +73,7 @@ const reviewRoot = path.resolve(__dirname, '../tmp/upstream-0.6.17-review/usr/sr
 test('0.6.17 extracted image matches its reviewed manifest when available', { skip: !fs.existsSync(reviewRoot) }, () => {
   const result = verify(reviewRoot);
   assert.equal(result.version, '0.6.17');
-  assert.equal(Object.keys(result.fingerprints).length, 40);
+  assert.equal(Object.keys(result.fingerprints).length, 42);
 });
 
 test('copied verifier uses an explicit external manifest directory', () => {

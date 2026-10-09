@@ -130,11 +130,16 @@ function createNativeTasks({
     return true;
   }
 
+  function analysisPolicyKey() {
+    return runtime.cache?.analysisPolicyKey?.()
+      || JSON.stringify({ coldCache: runtime.options?.coldCache, loudness: runtime.options?.loudness });
+  }
+
   function getHandle(target, { includeFinished = true } = {}) {
     const key = keyFor(target);
     const handle = includeFinished ? registry.get(key) : registry.getActive(key);
     if (!handle) return undefined;
-    if (!sameTarget(handle, target)) {
+    if (!sameTarget(handle, target) || (handle.skipped && handle.analysisPolicyKey !== analysisPolicyKey())) {
       registry.remove?.(handle);
       return undefined;
     }
@@ -219,7 +224,9 @@ function createNativeTasks({
         sourcePath = await resolveAnalysisPath(target, options);
       } catch (error) {
         if (!['DOWNLOAD_TOO_LARGE', 'COLD_CACHE_POLICY', 'COLD_CACHE_DISABLED'].includes(String(error && error.code || ''))) throw error;
-        await runtime.cache.markAnalysisSkipped?.(target, error.code);
+        if (handle.analysisPolicyKey === analysisPolicyKey()) {
+          await runtime.cache.markAnalysisSkipped?.(target, error.code);
+        }
         handle.skipped = true;
         return { skipped: true };
       }
@@ -281,6 +288,7 @@ function createNativeTasks({
     });
     handle.targetKey = target.key;
     handle.pointerFingerprint = target.pointerFingerprint;
+    handle.analysisPolicyKey = analysisPolicyKey();
     handle.target = target;
     const promise = compute(handle, target, options);
     handle.promise = promise;

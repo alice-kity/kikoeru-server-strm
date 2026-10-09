@@ -18,6 +18,7 @@ const {
   resolveRedirect,
 } = require('./http');
 const { createNativeTasks } = require('./native-tasks');
+const { createNativeWaveform } = require('./native-waveform');
 
 const RUNTIME_SYMBOL = Symbol.for('kikoeru.strm.runtime.v2');
 const LOUDNESS_METHODS = ['ebur128'];
@@ -478,6 +479,13 @@ function createRuntime(appRoot) {
           const result = await bridge.validateTarget(target);
           return result !== false && !(result && result.valid === false);
         };
+        runtime.nativeWaveform = createNativeWaveform({
+          runtime, trackBridge: bridge, mediaProcess,
+          audioWaveform: require(path.join(appRoot, 'dist/src/filesystem/audioWaveform.js')),
+          waveformCodec: require(path.join(appRoot, 'dist/src/filesystem/waveformCodec.js')),
+          heavyTaskQueue: queues.heavyTaskQueue,
+        });
+        runtime.cache.scheduleWaveform = (target, sourcePath) => runtime.nativeWaveform.start(target, { sourcePath }).handle.promise;
       }
       return runtime.nativeTasks;
     },
@@ -567,9 +575,12 @@ function ensureStrmLocal(runtime, target, resolveFinal = resolveRedirect, cacheO
   // browser-specific identities.
   const coldTarget = Object.assign({}, target, { userAgent: DEFAULT_HELPER_USER_AGENT });
   const task = async () => {
-    const resolved = await resolveStrmRedirect(runtime, coldTarget, resolveFinal);
+    let resolved;
     try {
-      const local = await runtime.cache.ensureLocal(target, resolved.final, {
+      const local = await runtime.cache.ensureLocal(target, async () => {
+        resolved = await resolveStrmRedirect(runtime, coldTarget, resolveFinal);
+        return resolved.final;
+      }, {
         coldCacheEnabled: runtime.options.coldCache.enabled,
         allowedSchemes: runtime.options.allowedSchemes,
         finalAllowedHosts: runtime.options.finalAllowedHosts,
@@ -661,6 +672,14 @@ function startStrmColdBootstrap(runtime, target, resolveFinal = resolveRedirect,
  * makes cold/hot path tests independent from the compressed upstream router.
  */
 async function handleStrmPlayback({ req, res, target, runtime, resolveFinal = resolveRedirect, logger = console } = {}) {
+  // Web Audio cannot consume a no-CORS CDN redirect. The browser asks for
+  // strict local delivery only for STRM tracks using its native analyser.
+  const requireLocal = req.query?.strm_local === '1';
+  const rejectUnsafeRedirect = error => {
+    if (requireLocal) throw Object.assign(new Error('Local media is required for audio visualization'), {
+      code: 'STRM_LOCAL_DELIVERY_REQUIRED', status: 409, cause: error,
+    });
+  };
   const preloadDecision = classifyPreloadRequest(req, runtime.options.preloadGuard);
   if (preloadDecision.isPreload) logPreloadDiagnostic(req, target, preloadDecision, logger);
   if (preloadDecision.shortCircuit) {
@@ -674,7 +693,7 @@ async function handleStrmPlayback({ req, res, target, runtime, resolveFinal = re
     && await fs.promises.stat(record.cachePath).then(stat => stat.isFile()).catch(() => false);
   const lufsReady = target.row && target.row.lufs !== null && target.row.lufs !== undefined && target.row.lufs !== '';
   if (completeLocal && !lufsReady && !isLoudnessDisabled(runtime, target)) {
-    await runtime.store.upsert(target.key, { lastAccessAt: Date.now() });
+    await runtime.cache.touch(target);
     void runtime.scheduleLoudness(target, record.cachePath).catch(() => undefined);
     incrementMetric(runtime, 'coldLocal');
     setMediaContentType(res, target.mediaExt);
@@ -689,9 +708,10 @@ async function handleStrmPlayback({ req, res, target, runtime, resolveFinal = re
       loudnessReady: Boolean(lufsReady),
     });
   if (hot) {
-    if (runtime.options.redirectMode === 'local') {
+    if (requireLocal || runtime.options.redirectMode === 'local') {
       try {
         if (completeLocal) {
+          await runtime.cache.touch(target);
           incrementMetric(runtime, 'localPlayback');
           setMediaContentType(res, target.mediaExt);
           return res.sendFile(record.cachePath);
@@ -704,6 +724,7 @@ async function handleStrmPlayback({ req, res, target, runtime, resolveFinal = re
         // If local delivery is impossible because of the configured cache
         // policy, retain the direct 302 fallback rather than blocking play.
         if (isColdPathSkip(error)) {
+          rejectUnsafeRedirect(error);
           // The cold flight resolves with the stable server UA.  That URL is
           // intentionally not suitable for a browser redirect: resolve again
           // under the original request UA so Helper/r302 returns the matching
@@ -729,6 +750,7 @@ async function handleStrmPlayback({ req, res, target, runtime, resolveFinal = re
     // A configured size policy intentionally falls back to the direct path
     // and marks loudness as skipped; transient failures stay visible.
     if (isColdPathSkip(error)) {
+      rejectUnsafeRedirect(error);
       // See the local hot-branch fallback above: never expose the stable-UA
       // cold URL to a browser whose Helper lookup used a different UA.
       const fallback = await resolveStrmRedirect(runtime, target, resolveFinal);

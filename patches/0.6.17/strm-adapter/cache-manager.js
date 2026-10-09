@@ -78,6 +78,8 @@ class StrmCacheManager {
     this.logger = logger;
     this.downloads = new SingleFlight();
     this.analysisPromises = new Map();
+    this.waveformPromises = new Map();
+    this.scheduleWaveform = null;
     this.activeParts = new Set();
     this.generations = new Map();
     this.activeDownloads = new Map();
@@ -122,6 +124,10 @@ class StrmCacheManager {
       maxFileBytes: this.limits.maxFileBytes,
       maxVideoBytes: this.limits.maxVideoBytes,
     });
+  }
+
+  analysisPolicyKey() {
+    return this._analysisPolicyKey();
   }
 
   async _assertTargetCurrent(pointerInfo) {
@@ -225,6 +231,15 @@ class StrmCacheManager {
     return this._recordFor(pointerInfo);
   }
 
+  async touch(pointerInfo) {
+    await this._assertTargetCurrent(pointerInfo);
+    const updated = await this._compareAndUpsert(this._key(pointerInfo), targetFingerprint(pointerInfo), {
+      lastAccessAt: Date.now(),
+    });
+    if (!updated.updated) throw changedTargetError();
+    return updated.record;
+  }
+
   async _isLufsReady(pointerInfo, options) {
     if (Object.prototype.hasOwnProperty.call(options, 'loudnessReady')) return Boolean(options.loudnessReady);
     const row = pointerInfo.row || {};
@@ -247,31 +262,48 @@ class StrmCacheManager {
     const key = this._key(pointerInfo);
     const existing = this.analysisPromises.get(key);
     if (existing) return existing;
-    return this.trackAnalysis(pointerInfo, Promise.resolve().then(() => callback(pointerInfo, filePath)));
+    // The runtime callback may itself register the native task. Invoke it
+    // before recording a promise, otherwise it joins the wrapper promise
+    // which is waiting for that same callback (a promise resolution cycle).
+    let task;
+    try { task = callback(pointerInfo, filePath); } catch (error) { task = Promise.reject(error); }
+    return this.trackAnalysis(pointerInfo, task);
   }
 
   trackAnalysis(pointerInfo, taskPromise) {
+    return this._trackTask(this.analysisPromises, pointerInfo, taskPromise);
+  }
+
+  trackWaveform(pointerInfo, taskPromise) {
+    return this._trackTask(this.waveformPromises, pointerInfo, taskPromise);
+  }
+
+  _trackTask(tasks, pointerInfo, taskPromise) {
     const key = this._key(pointerInfo);
-    const existing = this.analysisPromises.get(key);
+    const existing = tasks.get(key);
     if (existing) return existing;
     const promise = Promise.resolve(taskPromise);
-    this.analysisPromises.set(key, promise);
+    tasks.set(key, promise);
     void promise.catch(error => {
-      this.logger.warn?.('[STRM] native LUFS scheduling failed work=%s seq=%s code=%s',
+      this.logger.warn?.('[STRM] native media scheduling failed work=%s seq=%s code=%s',
         pointerInfo.workId == null ? '-' : pointerInfo.workId,
         pointerInfo.seq == null ? pointerInfo.index : pointerInfo.seq,
         error && error.code || 'LUFS_SCHEDULE_FAILED');
     }).finally(() => {
-      if (this.analysisPromises.get(key) === promise) this.analysisPromises.delete(key);
+      if (tasks.get(key) === promise) tasks.delete(key);
     });
     return promise;
   }
 
   async _notifyReady(pointerInfo, filePath, options = {}) {
     const callback = options.scheduleLoudness || this.scheduleLoudness;
-    if (typeof callback !== 'function') return;
-    if (!this.limits.loudnessEnabled || (this.limits.loudnessAudioOnly && pointerInfo.isVideo)) return;
-    this._scheduleAnalysis(pointerInfo, filePath, callback);
+    if (typeof callback === 'function' && this.limits.loudnessEnabled
+      && !(this.limits.loudnessAudioOnly && pointerInfo.isVideo)) {
+      this._scheduleAnalysis(pointerInfo, filePath, callback);
+    }
+    if (typeof this.scheduleWaveform === 'function' && !pointerInfo.isVideo) {
+      this.trackWaveform(pointerInfo, this.scheduleWaveform(pointerInfo, filePath));
+    }
   }
 
   async invalidateTarget(pointerInfo) {
@@ -301,6 +333,7 @@ class StrmCacheManager {
       this.generations.set(key, (this.generations.get(key) || 0) + 1);
     }
     this.analysisPromises.delete(key);
+    this.waveformPromises.delete(key);
     return true;
   }
 
@@ -346,7 +379,9 @@ class StrmCacheManager {
       let stat;
       this.activeParts.add(partPath);
       try {
-        result = await downloadToFile(finalUrl, partPath, {
+        // Resolve a signed URL only after cache reuse and local policy checks.
+        const sourceUrl = typeof finalUrl === 'function' ? await finalUrl() : finalUrl;
+        result = await downloadToFile(sourceUrl, partPath, {
           maxBytes,
           timeoutMs: this.limits.downloadTimeoutMs,
           allowedSchemes: options.allowedSchemes,
@@ -498,7 +533,7 @@ class StrmCacheManager {
     let total = 0;
     for (const record of records) {
       if (!record.downloadReady || !record.cachePath || !isWithin(this.limits.rootDir, record.cachePath)) continue;
-      if ([...this.activeDownloads.keys()].includes(record.key) || this.analysisPromises.has(record.key)) {
+      if (this.activeDownloads.has(record.key) || this.analysisPromises.has(record.key) || this.waveformPromises.has(record.key)) {
         total += Number(record.cacheBytes || 0);
         continue;
       }
@@ -547,6 +582,7 @@ class StrmCacheManager {
       activeDownloads: this.activeDownloads.size,
       activePartFiles: this.activeParts.size,
       activeLoudness: this.analysisPromises.size,
+      activeWaveforms: this.waveformPromises.size,
       pendingCleanup: records.filter(record => record.cleanupPending).length,
     };
   }

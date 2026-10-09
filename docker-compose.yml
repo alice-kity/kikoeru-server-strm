@@ -7,7 +7,7 @@ services:
       dockerfile: Dockerfile
       args:
         UPSTREAM_IMAGE: ${KIKOERU_UPSTREAM_IMAGE:-number17/kikoeru@sha256:e78de6e4ac3eb8dbddffc84b31b3f10b809cb2baf3944fd3a5bfe0e5daa77391}
-    image: ${KIKOERU_STRM_IMAGE:-kikoeru-strm:0.2.0}
+    image: ${KIKOERU_STRM_IMAGE:-kikoeru-strm:0.2.6}
     container_name: kikoeru-strm-12346
     restart: unless-stopped
     init: true

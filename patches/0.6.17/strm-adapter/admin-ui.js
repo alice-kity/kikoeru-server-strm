@@ -7,6 +7,34 @@ function isStrmTrack(track) {
   return Boolean(track && track.isStrm === true);
 }
 
+function strmPlaybackSource(source, track, needsLocal) {
+  if (!source || !isStrmTrack(track)) return source;
+  const parsed = new URL(source, 'http://strm.invalid');
+  if (!/^\/api\/media\/stream\//.test(parsed.pathname)) return source;
+  parsed.searchParams.set('strm', '1');
+  if (needsLocal) parsed.searchParams.set('strm_local', '1');
+  else parsed.searchParams.delete('strm_local');
+  return parsed.origin === 'http://strm.invalid' ? parsed.pathname + parsed.search + parsed.hash : parsed.toString();
+}
+
+function installAudioElementSourceGuard(instance) {
+  const watcher = instance && instance._computedWatchers && instance._computedWatchers.source;
+  if (!watcher || watcher.__strmSourceGuard || typeof watcher.getter !== 'function') return false;
+  const original = watcher.getter;
+  watcher.getter = function () {
+    const graph = this.$store && this.$store.state && this.$store.state.AudioPlayer && this.$store.state.AudioPlayer.audioAnalyser;
+    return strmPlaybackSource(original.apply(this, arguments), this.currentPlayingFile,
+      Boolean(this.enableVisualizer || (graph && graph.audioSrc)));
+  };
+  watcher.__strmSourceGuard = true;
+  watcher.dirty = true;
+  // Existing instances already have a watcher for source changes. Let that
+  // watcher load the corrected URL as well as updating the rendered source.
+  for (const item of instance._watchers || []) if (item.expression === 'source') item.update();
+  if (typeof instance.$forceUpdate === 'function') instance.$forceUpdate();
+  return true;
+}
+
 function installAudioElementTranscodeGuard(methods, instance) {
   const marker = '__kikoeruStrmTranscodeGuard';
   let patched = false;
@@ -47,11 +75,14 @@ const MENU_SCRIPT = [
   '(function () {',
   '  "use strict";',
   '  var isStrmTrack = ' + isStrmTrack.toString() + ';',
+  '  var strmPlaybackSource = ' + strmPlaybackSource.toString() + ';',
+  '  var installAudioElementSourceGuard = ' + installAudioElementSourceGuard.toString() + ';',
   '  var installAudioElementTranscodeGuard = ' + installAudioElementTranscodeGuard.toString() + ';',
   '  function isMediaElement(element) { var tag = element && String(element.tagName || "").toLowerCase(); return tag === "audio" || tag === "video"; }',
-  '  function isStrmStreamUrl(value) { try { var parsed = new URL(String(value || ""), window.location.href); return parsed.origin === window.location.origin && /^\\/api\\/media\\/stream(?:\\/|$)/.test(parsed.pathname); } catch (_) { return false; } }',
-  '  function stripStrmCrossorigin(media) { if (!isMediaElement(media)) return; var source = media.querySelector && media.querySelector("source"); var value = media.getAttribute("src") || (source && source.getAttribute("src")); if (isStrmStreamUrl(value)) media.removeAttribute("crossorigin"); }',
-  '  function beforeMediaInsert(parent, node) { if (!isMediaElement(parent)) return; var tag = node && String(node.tagName || "").toLowerCase(); var value = tag === "source" && node.getAttribute ? node.getAttribute("src") : ""; if (node && node.__kikoeruStrmSource || isStrmStreamUrl(value) || isStrmStreamUrl(parent.getAttribute("src"))) parent.removeAttribute("crossorigin"); }',
+  '  function isStrmStreamUrl(value) { try { var parsed = new URL(String(value || ""), window.location.href); return parsed.origin === window.location.origin && /^\\/api\\/media\\/stream(?:\\/|$)/.test(parsed.pathname) && parsed.searchParams.get("strm") === "1"; } catch (_) { return false; } }',
+  '  function applyStrmCors(media, value) { if (!isMediaElement(media)) return; var local = false; try { local = new URL(String(value || ""), window.location.href).searchParams.get("strm_local") === "1"; } catch (_) {} if (isStrmStreamUrl(value) && !local) { if (!media.__strmCorsRemoved) { media.__strmPreviousCors = media.getAttribute("crossorigin"); media.__strmCorsRemoved = true; } if (media.hasAttribute("crossorigin")) media.removeAttribute("crossorigin"); } else if (media.__strmCorsRemoved) { var previous = media.__strmPreviousCors; media.__strmCorsRemoved = false; if (previous !== null) media.setAttribute("crossorigin", previous); } }',
+  '  function stripStrmCrossorigin(media) { if (!isMediaElement(media)) return; var source = media.querySelector && media.querySelector("source"); applyStrmCors(media, media.getAttribute("src") || (source && source.getAttribute("src"))); }',
+  '  function beforeMediaInsert(parent, node) { if (!isMediaElement(parent)) return; var tag = node && String(node.tagName || "").toLowerCase(); var value = tag === "source" && node.getAttribute ? node.getAttribute("src") : ""; applyStrmCors(parent, value || parent.getAttribute("src")); }',
   '  function installStrmMediaCorsPatch() {',
   '    if (typeof Node === "function" && !Node.prototype.__kikoeruStrmMediaPatch) {',
   '      var appendChild = Node.prototype.appendChild, insertBefore = Node.prototype.insertBefore, replaceChild = Node.prototype.replaceChild;',
@@ -62,11 +93,13 @@ const MENU_SCRIPT = [
   '    }',
   '    if (typeof Element === "function" && !Element.prototype.__kikoeruStrmSourcePatch) {',
   '      var setAttribute = Element.prototype.setAttribute;',
-  '      Element.prototype.setAttribute = function (name, value) { if (String(name).toLowerCase() === "src" && String(this.tagName || "").toLowerCase() === "source" && isStrmStreamUrl(value)) { this.__kikoeruStrmSource = true; if (this.parentNode) beforeMediaInsert(this.parentNode, this); } if (String(name).toLowerCase() === "src" && isMediaElement(this) && isStrmStreamUrl(value)) this.removeAttribute("crossorigin"); return setAttribute.call(this, name, value); };',
+  '      Element.prototype.setAttribute = function (name, value) { var result = setAttribute.call(this, name, value); if (String(name).toLowerCase() === "src") { if (String(this.tagName || "").toLowerCase() === "source" && this.parentNode) beforeMediaInsert(this.parentNode, this); if (isMediaElement(this)) applyStrmCors(this, value); } return result; };',
   '      Object.defineProperty(Element.prototype, "__kikoeruStrmSourcePatch", { value: true, enumerable: false });',
   '    }',
   '    if (typeof HTMLMediaElement === "function" && !HTMLMediaElement.prototype.__kikoeruStrmLoadPatch) { var load = HTMLMediaElement.prototype.load; HTMLMediaElement.prototype.load = function () { stripStrmCrossorigin(this); return load.apply(this, arguments); }; Object.defineProperty(HTMLMediaElement.prototype, "__kikoeruStrmLoadPatch", { value: true, enumerable: false }); }',
-  '    function scan() { var media = document.querySelectorAll ? document.querySelectorAll("audio,video") : []; for (var i = 0; i < media.length; i += 1) { stripStrmCrossorigin(media[i]); installStrmMediaRecovery(media[i]); } }',
+  // AudioElement can mount after route installation has stopped its observer.
+  // The existing media observer installs player guards once for each new media element.
+  '    function scan() { var media = document.querySelectorAll ? document.querySelectorAll("audio,video") : []; for (var i = 0; i < media.length; i += 1) { if (!media[i].__strmPlayerGuard && installTranscodeGuard(appVue())) media[i].__strmPlayerGuard = true; stripStrmCrossorigin(media[i]); installStrmMediaRecovery(media[i]); } }',
   '    scan();',
   '    if (typeof MutationObserver === "function" && document.documentElement) { var observer = new MutationObserver(scan); observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["src", "crossorigin"] }); }',
   '  }',
@@ -255,6 +288,7 @@ const MENU_SCRIPT = [
   '  }',
   '  function patchAudioElement(vm) {',
   '    if (!vm || !vm.$options || vm.$options.name !== "AudioElement") return false;',
+  '    installAudioElementSourceGuard(vm);',
   '    var vnode = vm.$vnode || vm.$options._parentVnode, componentOptions = vnode && vnode.componentOptions, ctor = componentOptions && componentOptions.Ctor;',
   '    var methods = ctor && ctor.options && ctor.options.methods || vm.$options.methods;',
   '    var patched = installAudioElementTranscodeGuard(methods, vm);',
@@ -264,7 +298,7 @@ const MENU_SCRIPT = [
   '      if (sourceWatcher) sourceWatcher.dirty = true;',
   '      if (typeof vm.$forceUpdate === "function") vm.$forceUpdate();',
   '    }',
-  '    return patched;',
+  '    return true;',
   '  }',
   '  function installTranscodeGuard(root) {',
   '    var patched = false;',
@@ -650,6 +684,8 @@ function installAdminUiHooks() {
 }
 
 module.exports = {
+  strmPlaybackSource,
+  installAudioElementSourceGuard,
   ADMIN_HTML,
   MENU_SCRIPT,
   createAdminUiMiddleware,

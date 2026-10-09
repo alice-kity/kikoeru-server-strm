@@ -216,6 +216,7 @@ function installRoutes(routesRouter, appRoot, dependencies = {}) {
   const runtime = dependencies.runtime || getRuntime(appRoot);
   const bridge = dependencies.bridge || ensureTrackBridge(runtime, appRoot);
   const nativeTasks = dependencies.nativeTasks || runtime.nativeTasks;
+  const waveform = dependencies.nativeWaveform || runtime.nativeWaveform;
   const config = runtime.config;
   const express = dependencies.express || require('express');
   const mediaProcess = dependencies.mediaProcess || require(path.join(appRoot, 'dist/src/routes/media-process.js'));
@@ -364,10 +365,58 @@ function installRoutes(routesRouter, appRoot, dependencies = {}) {
     });
   }
 
+  async function handleWaveformTask(req, res, next, phase) {
+    return withTarget(req, res, next, async target => {
+      await runtime.ready;
+      const status = await waveform.status(target);
+      const task = status.task;
+      const base = { task: 'waveform', workId: target.workId, seq: target.seq };
+      const sendResult = cached => {
+        res.setHeader('Content-Type', 'application/octet-stream');
+        return res.send(waveform.result(cached, req.query));
+      };
+      if (phase === 'status') return res.json({
+        ...base, ready: status.ready, active: status.active, state: status.state,
+        skipped: status.skipped || undefined,
+        progress: status.active && task ? nativeProgressView(task.info) : null,
+      });
+      if (phase === 'stream_notify') {
+        if (status.ready) return sendTerminalSse(res, { state: 'done', percent: 100 });
+        if (status.skipped) return sendTerminalSse(res, { state: 'failed', percent: 0, skipped: true, code: 'STRM_WAVEFORM_SKIPPED' });
+        return task ? streamTask(req, res, task) : sendTerminalSse(res, { state: 'idle', percent: 0 });
+      }
+      if (status.skipped) return res.status(409).json({ ...base, code: 'STRM_WAVEFORM_SKIPPED', error: 'Waveform analysis is skipped by the current cache policy' });
+      if (phase === 'start') {
+        if (status.ready) return res.json({ ...base, status: 'ready', ready: true, active: false, state: 'done', alreadyRunning: false });
+        const started = waveform.start(target);
+        return res.json({ ...base, status: 'started', ready: false, active: true,
+          state: started.handle.info.state, alreadyRunning: started.alreadyRunning,
+          progress: nativeProgressView(started.handle.info) });
+      }
+      if (status.ready) return sendResult(status.cached);
+      if (task && status.active && waitRequested(req.query)) {
+        const outcome = await nativeTasks.wait(task, resultWaitMs(req.query, mediaProcess));
+        const fresh = await bridge.resolveTrack(target.workId, target.seq, target.userAgent);
+        if (!fresh || fresh.pointerFingerprint !== target.pointerFingerprint) {
+          return res.status(409).json({ ...base, error: 'STRM pointer changed', code: 'STRM_TARGET_CHANGED' });
+        }
+        const cached = await waveform.read(fresh);
+        if (cached) return sendResult(cached);
+        if (outcome.timedOut) return sendRetry(res, 'waveform', target, task, task.info, '等待结果超时', 503);
+        return res.status(500).json({ ...base, state: 'failed', error: task.info.error || 'Waveform analysis failed' });
+      }
+      if (task && status.active) return sendRetry(res, 'waveform', target, task, nativeProgressView(task.info));
+      return res.status(task?.info.state === 'failed' ? 500 : 404).json({
+        ...base, state: status.state, error: task?.info.error || '结果未就绪',
+      });
+    });
+  }
+
   async function handleTask(req, res, next, phase) {
     const taskName = req.params.task;
     if (!TASK_NAMES.has(taskName) || !TASK_OPERATIONS.has(phase)) return next();
     if (taskName === 'loudnorm') return handleLoudnormTask(req, res, next, phase);
+    if (taskName === 'waveform') return handleWaveformTask(req, res, next, phase);
     return handleUnsupportedTask(req, res, next, phase, taskName);
   }
 

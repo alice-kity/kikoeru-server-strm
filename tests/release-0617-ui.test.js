@@ -8,7 +8,24 @@ const {
   MENU_SCRIPT,
   installAudioElementTranscodeGuard,
   isStrmTrack,
+  strmPlaybackSource,
+  installAudioElementSourceGuard,
 } = require('../patches/0.6.17/strm-adapter/admin-ui');
+
+test('STRM source guard requests local media only for Web Audio and leaves native URLs untouched', () => {
+  const source = '/api/media/stream/1/2?token=test';
+  assert.equal(strmPlaybackSource(source, { title: 'ordinary.wav' }, true), source);
+  assert.match(strmPlaybackSource(source, { isStrm: true }, false), /strm=1$/);
+  assert.match(strmPlaybackSource(source, { isStrm: true }, true), /strm=1&strm_local=1$/);
+  const vm = {
+    currentPlayingFile: { isStrm: true }, enableVisualizer: true,
+    _computedWatchers: { source: { getter() { return source; } } }, _watchers: [],
+  };
+  assert.equal(installAudioElementSourceGuard(vm), true);
+  assert.match(vm._computedWatchers.source.getter.call(vm), /strm_local=1/);
+  vm.currentPlayingFile = { title: 'ordinary.wav' };
+  assert.equal(vm._computedWatchers.source.getter.call(vm), source);
+});
 
 test('0.6.17 player guard skips STRM current and next tracks only', async () => {
   const calls = { current: 0, next: 0 };

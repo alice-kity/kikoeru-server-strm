@@ -458,6 +458,54 @@ test('duration probe queue honors disable and persists only fingerprint-bound re
   assert.deepEqual(disabled, { scanned: 0, succeeded: 0, failed: 0 });
 });
 
+test('STRM master switch prevents new and already queued duration probes without throttling later retries', {
+  skip: !knexFactory || !LocalProvider ? 'run with the 0.6.17 image dependencies' : false,
+}, async t => {
+  const fixture = await makeFixture({ strmText: 'https://one.example/a.mp3\n' });
+  t.after(() => fixture.close());
+  await fixture.utils.getTrackList(101, fixture.loc, { sync: true });
+  const rows = (await fixture.trackStore.getTrackRows(101)).filter(row => row.ext === '.strm');
+  fixture.runtime.options.enabled = false;
+  assert.equal((await fixture.bridge.scanStrmDurations(fixture.loc, rows, 1)).scanned, 0);
+  assert.equal(fixture.probeCalls.length, 0);
+
+  fixture.runtime.options.enabled = true;
+  let release, entered;
+  const queued = new Promise(resolve => { entered = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  fixture.runtime.queue.enqueue = (_item, task) => { entered(); return gate.then(task); };
+  const pending = fixture.bridge.scanStrmDurations(fixture.loc, rows, 1);
+  await queued;
+  fixture.runtime.options.enabled = false;
+  release();
+  await pending;
+  assert.equal(fixture.probeCalls.length, 0);
+  assert.equal((await fixture.trackStore.getTrackRow(101, rows[0].seq)).duration, null);
+  fixture.runtime.options.enabled = true;
+  assert.equal((await fixture.bridge.scanStrmDurations(fixture.loc, rows, 1)).succeeded, 1);
+  assert.equal(fixture.probeCalls.length, 1);
+});
+
+test('waveform persists to native columns and is removed when the pointer changes', {
+  skip: !knexFactory || !LocalProvider ? 'run with the 0.6.17 image dependencies' : false,
+}, async t => {
+  const fixture = await makeFixture({ strmText: 'https://one.example/a.mp3\n' });
+  t.after(() => fixture.close());
+  const tracks = await fixture.utils.getTrackList(101, fixture.loc, { sync: true });
+  const target = await fixture.bridge.resolveTrack(101, tracks.find(row => row.isStrm).seq);
+  const buffer = Buffer.from('fixture KWAV bytes');
+  assert.equal(await fixture.bridge.persistWaveform(target, buffer, 'KWAV/4', 0.05), true);
+  assert.deepEqual(await fixture.bridge.readWaveform(target, 'KWAV/4'), buffer);
+  const row = await fixture.trackStore.getTrackRow(101, target.seq);
+  const wavePath = path.join(fixture.config.audioCacheFolderDir, row.waveform_path);
+  assert.equal(row.waveform_resolution, 0.05);
+  await fs.writeFile(path.join(fixture.workPath, 'Virtual.mp3.strm'), 'https://two.example/b.mp3\n');
+  await fixture.utils.syncWorkTracks(101, fixture.loc);
+  assert.equal((await fixture.trackStore.getTrackRow(101, target.seq)).waveform_path, null);
+  await assert.rejects(fs.stat(wavePath), error => error.code === 'ENOENT');
+  assert.equal(await fixture.bridge.persistWaveform(target, buffer, 'KWAV/4', 0.05), false);
+});
+
 test('legacy state import is keyed, fingerprint checked, read-only, and resumes after interruption', {
   skip: !knexFactory || !LocalProvider ? 'run with the 0.6.17 image dependencies' : false,
 }, async t => {

@@ -16,7 +16,7 @@ const mediaRoot = path.join(root, 'media');
 const workDir = path.join(mediaRoot, 'RJ00000001');
 fs.mkdirSync(workDir, { recursive: true });
 const wav = path.join(root, 'fixture.wav');
-execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2', '-c:a', 'pcm_s16le', wav]);
+execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', `sine=frequency=440:duration=${process.env.FIXTURE_BROWSER === '1' ? 8 : 2}`, '-c:a', 'pcm_s16le', wav]);
 const body = fs.readFileSync(wav);
 fs.copyFileSync(wav, path.join(workDir, 'b-local.wav'));
 const pointer = path.join(workDir, 'a-remote.wav.strm');
@@ -144,10 +144,19 @@ async function main() {
   assert.ok(JSON.stringify(tree).includes('a-remote.wav')); assert.ok(JSON.stringify(tree).includes('\"isStrm\":true')); assert.ok(!JSON.stringify(tree).includes('fixture_signature'));
   const internal = await json('/work/1/trackinfo'); assert.ok(internal.tracks.some(t => t.seq === seq && t.relPath === 'a-remote.wav.strm' && t.duration > 1.9));
   evidence.push('native scan queue, physical t_track path, stable hash, duration and total_duration sorting');
+
+  if (process.env.FIXTURE_BROWSER === '1') {
+    db.prepare('UPDATE t_track SET lufs=-19.4 WHERE work_id=1 AND seq=?').run(seq);
+    console.log('BROWSER FIXTURE READY');
+    await new Promise(resolve => process.once('SIGTERM', resolve));
+    return;
+  }
   const route = '/media/task/loudnorm';
   const before = await json(route + '/status/1/' + seq); assert.equal(before.task, 'loudnorm');
   const getCount = gets;
-  const started = await Promise.all([json(route + '/start/1/' + seq, { method: 'POST' }), json(route + '/start/1/' + seq, { method: 'POST' }), api('/media/stream/1/' + seq)]);
+  const waveColdStart = await json('/media/task/waveform/start/1/' + seq, { method: 'POST' });
+  assert.equal(waveColdStart.status, 'started');
+  const started = await Promise.all([json(route + '/start/1/' + seq, { method: 'POST' }), json(route + '/start/1/' + seq, { method: 'POST' }), api('/media/stream/1/' + seq), json('/media/task/waveform/start/1/' + seq, { method: 'POST' })]);
   assert.ok(['started', 'ready'].includes(started[0].status));
   assert.equal(started[2].status, 200); assert.equal((await started[2].arrayBuffer()).byteLength, body.length);
   await eventually(() => db.prepare('SELECT lufs FROM t_track WHERE work_id=1 AND seq=?').get(seq).lufs !== null, 'LUFS');
@@ -160,7 +169,23 @@ async function main() {
   const redirected = await fetch(location, { headers: { 'User-Agent': 'FixtureBrowser/2' } }); assert.equal(redirected.status, 200);
   const cdnRange = await fetch(location, { headers: { 'User-Agent': 'FixtureBrowser/2', Range: 'bytes=100-131' } }); assert.equal(cdnRange.status, 206); assert.equal((await cdnRange.arrayBuffer()).byteLength, 32);
   assert.equal(mismatch, 0); evidence.push('new/legacy loudness, native LUFS, single download, SSE terminal event, hot 302 and matching UA');
-  for (const task of ['waveform', 'transcode']) {
+  const getsBeforeWaveResult = gets;
+  const waitedWave = await api('/media/task/waveform/result/1/' + seq + '?wait=1&timeoutMs=20000');
+  assert.equal(waitedWave.status, 200);
+  const waveStart = await json('/media/task/waveform/start/1/' + seq, { method: 'POST' });
+  assert.equal(waveStart.ready, true);
+  const waveResult = await api('/media/task/waveform/result/1/' + seq);
+  assert.equal(waveResult.status, 200);
+  const savedWave = Buffer.from(await waveResult.arrayBuffer());
+  const codec = localRequire('./dist/src/filesystem/waveformCodec.js');
+  assert.ok(codec.decodeAudioWaveform(savedWave).durationSec > 1.9);
+  const coarse = await api('/media/task/waveform/result/1/' + seq + '?resolution=0.2');
+  assert.ok(codec.decodeAudioWaveform(Buffer.from(await coarse.arrayBuffer())).bucketDurationSec >= 0.2);
+  const waveNotify = await api('/media/task/waveform/stream_notify/1/' + seq);
+  assert.match(await waveNotify.text(), /done/);
+  assert.equal(gets, getsBeforeWaveResult, 'waveform reuses the first complete cold download');
+  evidence.push('waveform-first start, concurrent loudness/playback, waiting result, native KWAV and merged resolution share one cold download');
+  for (const task of ['transcode']) {
     for (const operation of ['status', 'start', 'result', 'stream_notify']) {
       const res = await api('/media/task/' + task + '/' + operation + '/1/' + seq, { method: operation === 'start' ? 'POST' : 'GET' });
       const text = await res.text();
@@ -188,6 +213,8 @@ async function main() {
   await json('/admin/strm', { method: 'PUT', data: { redirectMode: 'direct', coldCache: { maxAgeMs: 1 } } });
   await sleep(20);
   await json('/admin/strm/cleanup', { method: 'POST' });
+  const cleanedCache = await json('/admin/strm');
+  assert.equal(cleanedCache.records.find(item => item.relativePath.endsWith('a-remote.wav.strm')).downloadReady, false);
   assert.equal(db.prepare('SELECT lufs FROM t_track WHERE work_id=1 AND seq=?').get(seq).lufs, savedLufs);
   app.kill('SIGTERM');
   await new Promise(resolve => app.once('exit', resolve));
@@ -196,6 +223,13 @@ async function main() {
   await eventually(async () => { try { return (await api('/health')).status === 200; } catch { return false; } }, 'fixture restart');
   const afterRestart = await json(route + '/result/1/' + seq);
   assert.equal(Number(afterRestart.loudnorm.input_i), Number(savedLufs.toFixed(2)));
+  const headsBeforeWave = heads, getsBeforeWave = gets;
+  const waveAfterRestart = await api('/media/task/waveform/result/1/' + seq);
+  assert.equal(waveAfterRestart.status, 200);
+  assert.deepEqual(Buffer.from(await waveAfterRestart.arrayBuffer()), savedWave);
+  assert.equal(heads, headsBeforeWave);
+  assert.equal(gets, getsBeforeWave);
+  evidence.push('persisted STRM waveform survives media eviction/restart without Helper or CDN requests');
   evidence.push('native LUFS survives complete-media TTL cleanup and fixture-only process restart');
   const queueBeforeSubtitle = await json('/scan/work-queue');
   fs.writeFileSync(path.join(workDir, 'b-local.lrc'), '[00:00.00]fixture subtitle\n');
@@ -217,6 +251,7 @@ async function main() {
   await eventually(async () => !(await json('/scan/work-queue')).busy, 'pointer rescan');
   const invalidated = db.prepare('SELECT * FROM t_track WHERE work_id=1 AND seq=?').get(seq);
   assert.equal(invalidated.lufs, null); assert.notEqual(invalidated.pointer_fingerprint, remote.pointer_fingerprint);
+  assert.equal(invalidated.waveform_path, null);
   evidence.push('delete/add/reorder retain identities; same-size/same-mtime pointer invalidates native LUFS');
   await json('/admin/strm', { method: 'PUT', data: { loudness: { enabled: false } } });
   fs.writeFileSync(pointer, 'http://127.0.0.1:19081/helper/bad\n');
