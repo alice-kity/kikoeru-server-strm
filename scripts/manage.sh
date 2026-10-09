@@ -10,8 +10,8 @@ umask 077
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 PROJECT_DIR="${KIKOERU_PROJECT_DIR:-$(cd -- "${SCRIPT_DIR}/.." && pwd -P)}"
 ENV_PATH=''
-UPSTREAM_IMAGE='number17/kikoeru@sha256:864cf8445ead0d272ca69d449f0f47e4b6c413cc69392b996b70be8433f4c0e6'
-DEFAULT_IMAGE='kikoeru-strm:0.1.4'
+UPSTREAM_IMAGE='number17/kikoeru@sha256:e78de6e4ac3eb8dbddffc84b31b3f10b809cb2baf3944fd3a5bfe0e5daa77391'
+DEFAULT_IMAGE='kikoeru-strm:0.2.0'
 SERVICE='kikoeru-strm'
 CONTAINER='kikoeru-strm-12346'
 TEMP_ENV=''
@@ -211,7 +211,7 @@ case "$COMMAND" in
       image_exists "$IMAGE"
       set_env_image "$IMAGE"
     else
-      IMAGE="$(env_value KIKOERU_STRM_IMAGE)"
+      IMAGE=$DEFAULT_IMAGE
       validate_image "$IMAGE"
       [[ -f "$PROJECT_DIR/scripts/build-overlay.sh" ]] || die 'scripts/build-overlay.sh is missing from project directory'
       (
@@ -220,6 +220,7 @@ case "$COMMAND" in
           KIKOERU_STRM_IMAGE="$IMAGE" \
           bash scripts/build-overlay.sh
       )
+      set_env_image "$IMAGE"
     fi
     compose up -d --no-build --force-recreate "$SERVICE"
     ;;

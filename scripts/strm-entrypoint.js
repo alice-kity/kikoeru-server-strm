@@ -86,7 +86,7 @@ function makeIndependentConfig() {
   }
   if (!fs.existsSync(configPath)) {
     const config = {
-      version: '0.6.15',
+      version: '0.6.17',
       production: true,
       auth: true,
       dbUseDefaultPath: false,
@@ -128,7 +128,7 @@ function makeIndependentConfig() {
           cleanupPolicy: 'lru+ttl', maxAgeMs: 2592000000,
           cleanupIntervalMs: 3600000, downloadTimeoutMs: 900000,
         },
-        loudness: { enabled: true, audioOnly: true, method: 'loudnorm', timeoutMs: 900000 },
+        loudness: { enabled: true, audioOnly: true, method: 'ebur128', timeoutMs: 900000 },
         statePath: path.join(sqlitePath, 'strm-state.json'),
       },
     };
@@ -265,10 +265,27 @@ function main() {
   // the upstream compiled scanner files.
   process.env.NODE_OPTIONS = withOverlayNodeOptions(appRoot, process.env.NODE_OPTIONS);
   require(path.join(appRoot, 'strm-adapter/bootstrap.js'));
-  require(path.join(appRoot, 'dist/src/app.js'));
+  const upstreamApp = require(path.join(appRoot, 'dist/src/app.js'));
+  return startUpstreamApp(upstreamApp);
 }
 
-if (require.main === module) main();
+function startUpstreamApp(upstreamApp) {
+  if (!upstreamApp || typeof upstreamApp.main !== 'function') {
+    const error = new Error('upstream main export is unavailable');
+    error.code = 'UPSTREAM_MAIN_UNAVAILABLE';
+    throw error;
+  }
+  return upstreamApp.main();
+}
+
+function reportStartupFailure(error) {
+  const candidate = error && typeof error.code === 'string' ? error.code : '';
+  const code = /^[A-Z0-9_]+$/.test(candidate) ? candidate : 'KIKOERU_STARTUP_FAILED';
+  console.error(`[STRM] startup failed (${code})`);
+  process.exitCode = 1;
+}
+
+if (require.main === module) Promise.resolve().then(main).catch(reportStartupFailure);
 
 module.exports = {
   FINAL_ALLOWED_HOSTS,
@@ -277,4 +294,6 @@ module.exports = {
   migrateRedirectConfigValue,
   migratePreloadConfig,
   migratePreloadConfigFile,
+  startUpstreamApp,
+  reportStartupFailure,
 };

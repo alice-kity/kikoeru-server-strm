@@ -6,8 +6,8 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        UPSTREAM_IMAGE: ${KIKOERU_UPSTREAM_IMAGE:-number17/kikoeru@sha256:864cf8445ead0d272ca69d449f0f47e4b6c413cc69392b996b70be8433f4c0e6}
-    image: ${KIKOERU_STRM_IMAGE:-kikoeru-strm:0.1.4}
+        UPSTREAM_IMAGE: ${KIKOERU_UPSTREAM_IMAGE:-number17/kikoeru@sha256:e78de6e4ac3eb8dbddffc84b31b3f10b809cb2baf3944fd3a5bfe0e5daa77391}
+    image: ${KIKOERU_STRM_IMAGE:-kikoeru-strm:0.2.0}
     container_name: kikoeru-strm-12346
     restart: unless-stopped
     init: true
@@ -33,7 +33,7 @@ services:
       STRM_CACHE_CLEANUP_INTERVAL_MS: ${STRM_CACHE_CLEANUP_INTERVAL_MS:-}
       STRM_LOUDNESS_ENABLED: ${STRM_LOUDNESS_ENABLED:-}
       STRM_LOUDNESS_AUDIO_ONLY: ${STRM_LOUDNESS_AUDIO_ONLY:-}
-      STRM_LOUDNESS_METHOD: ${STRM_LOUDNESS_METHOD:-}
+      STRM_LOUDNESS_METHOD: ebur128
       STRM_PRELOAD_GUARD_ENABLED: ${STRM_PRELOAD_GUARD_ENABLED:-}
       STRM_PRELOAD_GUARD_MODE: ${STRM_PRELOAD_GUARD_MODE:-}
       STRM_PRELOAD_GUARD_DETECT_HEAD: ${STRM_PRELOAD_GUARD_DETECT_HEAD:-}

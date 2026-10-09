@@ -5,6 +5,10 @@
 基线核查日期：2026-09-04
 文档定位：保留当时的目标、约束、设计取舍、验收标准和待确认事项，用于理解实现演进；当前安装、配置和运维信息以 [`README.md`](../README.md) 与 [`docs/OPERATIONS.md`](OPERATIONS.md) 为准。
 
+> 下文记录的是 2026-09-04 的规划上下文，不是当前版本的实现清单。当前插件 `0.2.0` / Kikoeru
+> `0.6.17` 的兼容范围见 [`COMPATIBILITY.md`](COMPATIBILITY.md)，升级设计见
+> [`UPGRADE-0.6.17.md`](UPGRADE-0.6.17.md)，本地验收见 [`VALIDATION-0.6.17.md`](VALIDATION-0.6.17.md)。
+
 当前实现入口和验证资料：
 
 - 适配层源码位于 `patches/0.6.15/strm-adapter/`，由版本感知 Docker 构建流程加载。

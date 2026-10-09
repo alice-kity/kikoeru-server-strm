@@ -10,7 +10,7 @@ const test = require('node:test');
 const projectRoot = path.resolve(__dirname, '..');
 const installScript = path.join(projectRoot, 'scripts', 'install.sh');
 const manageScript = path.join(projectRoot, 'scripts', 'manage.sh');
-const upstreamDigest = 'sha256:864cf8445ead0d272ca69d449f0f47e4b6c413cc69392b996b70be8433f4c0e6';
+const upstreamDigest = 'sha256:e78de6e4ac3eb8dbddffc84b31b3f10b809cb2baf3944fd3a5bfe0e5daa77391';
 
 function writeExecutable(filePath, source) {
   fs.writeFileSync(filePath, source, { mode: 0o700 });
@@ -124,6 +124,22 @@ test('install generates a private env and scopes mocked lifecycle commands', () 
   }
 });
 
+test('install defaults to the 0.2.0 image', () => {
+  const fixture = makeFixture();
+  try {
+    const result = run(installScript, [
+      '--media', fixture.media,
+      '--helper', 'helper.example.test:13258',
+      '--port', '32123',
+    ], fixture);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(fs.readFileSync(path.join(fixture.root, '.env'), 'utf8'),
+      /KIKOERU_STRM_IMAGE=kikoeru-strm:0\.2\.0/);
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test('install refuses overwrite, invalid helper/port, and occupied port before Docker work', () => {
   const fixture = makeFixture();
   try {
@@ -168,14 +184,26 @@ test('manage lifecycle commands update only the target image/service and refuse 
       const result = run(manageScript, command, fixture);
       assert.equal(result.status, 0, `${command}: ${result.stderr}`);
     }
+    const envPath = path.join(fixture.root, '.env');
+    const oldTag = 'kikoeru-strm:0.1.4';
+    fs.writeFileSync(envPath, fs.readFileSync(envPath, 'utf8').replace(
+      'KIKOERU_STRM_IMAGE=kikoeru-strm:0.2.0', `KIKOERU_STRM_IMAGE=${oldTag}`,
+    ));
+    fs.writeFileSync(fixture.log, '');
+    const defaultUpgrade = run(manageScript, ['upgrade'], fixture);
+    assert.equal(defaultUpgrade.status, 0, defaultUpgrade.stderr);
+    assert.match(fs.readFileSync(envPath, 'utf8'), /KIKOERU_STRM_IMAGE=kikoeru-strm:0\.2\.0/);
+    assert.match(logText(fixture), /build-overlay .*kikoeru-strm:0\.2\.0/);
+    assert.doesNotMatch(logText(fixture), /build-overlay .*kikoeru-strm:0\.1\.4/);
+
     const upgraded = run(manageScript, ['upgrade', '--image', 'kikoeru-strm:older-20260907'], fixture);
     assert.equal(upgraded.status, 0, upgraded.stderr);
-    assert.match(fs.readFileSync(path.join(fixture.root, '.env'), 'utf8'), /KIKOERU_STRM_IMAGE=kikoeru-strm:older-20260907/);
+    assert.match(fs.readFileSync(envPath, 'utf8'), /KIKOERU_STRM_IMAGE=kikoeru-strm:older-20260907/);
 
     const missing = run(manageScript, ['rollback', '--image', 'kikoeru-strm:not-present'], fixture, { MOCK_MISSING_IMAGE: 'kikoeru-strm:not-present' });
     assert.notEqual(missing.status, 0);
     assert.match(missing.stderr, /does not exist/);
-    assert.match(fs.readFileSync(path.join(fixture.root, '.env'), 'utf8'), /KIKOERU_STRM_IMAGE=kikoeru-strm:older-20260907/);
+    assert.match(fs.readFileSync(envPath, 'utf8'), /KIKOERU_STRM_IMAGE=kikoeru-strm:older-20260907/);
 
     const rollback = run(manageScript, ['rollback', '--image', 'kikoeru-strm:rollback-20260907'], fixture);
     assert.equal(rollback.status, 0, rollback.stderr);
@@ -199,13 +227,22 @@ test('manage lifecycle commands update only the target image/service and refuse 
 test('compose and env templates expose only configurable Helper hosts', () => {
   const compose = fs.readFileSync(path.join(projectRoot, 'docker-compose.yml'), 'utf8');
   const envExample = fs.readFileSync(path.join(projectRoot, '.env.example'), 'utf8');
+  const dockerfile = fs.readFileSync(path.join(projectRoot, 'Dockerfile'), 'utf8');
+  const packageJson = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
   assert.match(compose, /KIKOERU_STRM_PORT/);
   assert.match(compose, /KIKOERU_STRM_MEDIA_DIR/);
   assert.match(compose, /STRM_ALLOWED_HOSTS/);
+  assert.match(compose, /STRM_LOUDNESS_METHOD: ebur128/);
+  assert.match(envExample, /STRM loudness always uses native read-only ebur128/);
   assert.doesNotMatch(compose, /STRM_FINAL_ALLOWED_HOSTS/);
   assert.doesNotMatch(envExample, /STRM_FINAL_ALLOWED_HOSTS/);
   assert.match(envExample, /KIKOERU_STRM_PORT=12346/);
-  assert.match(envExample, /KIKOERU_STRM_IMAGE=kikoeru-strm:0\.1\.4/);
+  assert.match(envExample, /KIKOERU_STRM_IMAGE=kikoeru-strm:0\.2\.0/);
+  assert.match(compose, /kikoeru-strm:0\.2\.0/);
+  assert.match(compose, /sha256:e78de6e4ac3eb8dbddffc84b31b3f10b809cb2baf3944fd3a5bfe0e5daa77391/);
+  assert.match(dockerfile, /COPY patches\/0\.6\.17\/strm-adapter/);
+  assert.match(dockerfile, /--version 0\.6\.17/);
+  assert.equal(packageJson.version, '0.2.0');
   assert.match(envExample, /host\[:port\].*no|host\[:port\]/i);
 });
 

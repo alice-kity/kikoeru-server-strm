@@ -1,23 +1,23 @@
 # 独立 STRM 实例运维
 
-本文针对发布 `0.1.4`。项目是 `number17/kikoeru` `0.6.15` 的版本化 overlay，
-只管理独立 compose 项目 `kikoeru-strm`：容器 `kikoeru-strm-12346`，宿主端口
-`12346`。生产容器 `kikoeru` 使用的 `12345`、配置、SQLite、FUSE 原件和媒体数据
-不属于本项目，任何操作都不得触碰它们。
+> 0.2.0 已在 2026-10-09 按单独授权升级到 Kikoeru 0.6.17。部署前备份了配套的
+> `deploy/runtime/config/` 与 `deploy/runtime/sqlite/`；完整运行状态、迁移结果和遗留项见
+> [0.2.0 部署记录](DEPLOYMENT-0.2.0.md)。回退必须先恢复同一时点的配置/SQLite，再使用旧
+> 0.1.4 镜像；禁止仅切换镜像继续写新版数据库。真实 115/CDN 与 iOS 播放验收仍待完成。
 
-`0.1.4` 跟进的是同一 `0.6.15` 应用版本的上游热更新 digest
-`sha256:864cf8445ead0d272ca69d449f0f47e4b6c413cc69392b996b70be8433f4c0e6`。镜像、
-指纹和接口已重新审查，确认只有 `filesystem/audioProcessor.js` 与 `routes/media.js`
-的响度接口变化；STRM 适配器逻辑不变，patch 仍使用 `patches/0.6.15/`。这些是静态
-审查结论，不声称已完成真实客户端或生产环境验证。
 
-## 安装前检查
+本文针对插件 `0.2.0` / Kikoeru `0.6.17-20261007` 的版本化 overlay。
+目标 digest 固定为 `sha256:e78de6e4ac3eb8dbddffc84b31b3f10b809cb2baf3944fd3a5bfe0e5daa77391`，
+新 patch 位于 `patches/0.6.17/`。独立实例已升级到插件 0.2.0 / Kikoeru 0.6.17；
+旧 overlay 和指纹基线保留，以便按配套备份回退。真实客户端/CDN 验收仍需后续执行。
+
+## 新主机安装前检查
 
 确认以下条件后再运行安装脚本：
 
 - Docker Engine 和 Docker Compose v2 可用，当前用户可以运行 Docker；
-- `/media/MP_movieDB/NSFW/Voice1` 存在，并包含要扫描的媒体树；该目录只读挂载到
-  独立容器，`/media/CloudNas` 不应加入 compose；
+- `KIKOERU_STRM_MEDIA_DIR` 指定的媒体目录存在并包含要扫描的媒体树；该目录只读挂载到
+  独立容器，不应把 FUSE 原件目录加入 Compose；
 - 12346 没有被其他服务占用；
 - 上游镜像可拉取，且部署方配置的 Helper 可由容器访问；
 - 已准备备份位置，但不要在命令行、`.env` 示例或文档中写入密码、JWT 或带签名
@@ -37,10 +37,10 @@ cd /path/to/kikoeru-strm-plugin
 chmod +x scripts/install.sh scripts/manage.sh
 read -r -p 'Helper host[:port] (keep private): ' STRM_HELPER_HOST
 ./scripts/install.sh \
-  --media /media/MP_movieDB/NSFW/Voice1 \
+  --media /srv/kikoeru-media \
   --helper "$STRM_HELPER_HOST" \
   --port 12346 \
-  --image kikoeru-strm:0.1.4
+  --image kikoeru-strm:0.2.0
 unset STRM_HELPER_HOST
 ```
 
@@ -113,48 +113,54 @@ POST /api/admin/strm/cleanup
 
 ## 备份、升级、回退
 
-升级前先停止变更并备份独立数据（备份命令由主机策略决定，不把备份上传到项目）：
+以下步骤用于维护独立 STRM 实例。升级前保留旧镜像，停止独立实例再离线备份，确保
+SQLite/WAL 与配置来自同一时点。已经完成的本次升级及备份见[部署记录](DEPLOYMENT-0.2.0.md)：
 
 ```sh
-backup_dir="backups/$(date +%Y%m%d-%H%M%S)"
-mkdir -p "$backup_dir"
-cp -a deploy/runtime/config deploy/runtime/sqlite deploy/runtime/covers "$backup_dir/"
+cd /path/to/kikoeru-strm-plugin
+./scripts/manage.sh stop
+upgrade_backup_dir="/srv/kikoeru-backups/$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$upgrade_backup_dir"
+chmod 700 "$upgrade_backup_dir"
+cp -a deploy/runtime/config deploy/runtime/sqlite deploy/runtime/covers "$upgrade_backup_dir/"
+cp -a .env "$upgrade_backup_dir/deployment.env"
+printf '%s\n' "$upgrade_backup_dir"
 ```
 
-同一时间只建立一个时间戳目录；实际执行时也可以用组织的快照工具替代。不要把
-`deploy/runtime/cache` 当作媒体归档，缓存可重建，备份空间有限时可以不备份它。
+完整媒体缓存可以不备份，已保存的 LUFS 不随完整媒体清理而删除。备份中含密钥与配置，
+不要上传仓库或贴入日志。
 
-升级流程：
+使用本地已构建的新镜像升级：
 
 ```sh
-./scripts/manage.sh upgrade
-# 若要切换到已经存在的本地镜像：
-./scripts/manage.sh upgrade --image kikoeru-strm:0.1.4
+./scripts/manage.sh upgrade --image kikoeru-strm:0.2.0
 docker compose ps
 curl -fsS http://127.0.0.1:12346/api/health
 ```
 
-`upgrade` 默认重建 `.env` 中的 versioned image；`--image IMAGE` 只接受已经存在的
-本地镜像并更新 `.env` 后重建独立容器。
+登录后触发原生作品文件扫描，等待队列结束，检查内部数据中的 STRM 物理路径、固定 seq、
+时长与 LUFS；抽样验证首次播放、热播放 302、Range、管理页与真实客户端。
+`--image` 使用已经存在的本地镜像；默认 `upgrade` 构建本代码发布的版本 tag 并更新 `.env`，保留旧 tag，避免覆盖回退镜像。
+构建必须锁定 0.6.17 的目标 digest 与文件指纹，不能复用旧 `latest` 或旧 patch。
 
-升级脚本必须保留旧镜像 tag 和 `deploy/runtime`，先验证新实例，再清理旧镜像。本次
-`0.1.4` 是同一 `0.6.15` 应用版本的热更新：记录新的镜像 digest 和受保护文件指纹，
-完成接口审查后继续使用 `patches/0.6.15/`；上游应用版本变化时才必须建立新的
-`patches/<upstream-version>/` 目录。任一版本或指纹不匹配都应让构建失败，不能静默
-套用未审查的 patch。边界清单见
-[`COMPATIBILITY.md`](COMPATIBILITY.md)。
-
-回退流程：
+回退到 0.1.4/0.6.15 需要恢复备份；请将下例 backup 路径改为上面实际保存的目录：
 
 ```sh
-./scripts/manage.sh rollback --image kikoeru-strm:0.1.1
-docker compose ps
+./scripts/manage.sh stop
+upgrade_backup_dir=/srv/kikoeru-backups/REPLACE_WITH_BACKUP_TIMESTAMP
+rollback_saved_dir="/srv/kikoeru-backups/newer-data-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$rollback_saved_dir"
+chmod 700 "$rollback_saved_dir"
+mv deploy/runtime/config deploy/runtime/sqlite "$rollback_saved_dir/"
+cp -a "$upgrade_backup_dir/config" "$upgrade_backup_dir/sqlite" deploy/runtime/
+cp -a "$upgrade_backup_dir/deployment.env" .env
+chmod 600 .env
+./scripts/manage.sh rollback --image kikoeru-strm:0.1.4
 curl -fsS http://127.0.0.1:12346/api/health
 ```
 
-回退只切换独立 overlay/image 并重启独立 compose 项目，默认保留 config、SQLite、
-状态、封面和缓存。若新版改变了配置语义，先停服务、保留新旧备份，再恢复与旧镜像
-匹配的配置/SQLite；不要用空目录覆盖现有数据。
+此回退保留新版数据供排查，不把新旧数据库混用。不能仅执行镜像 rollback 而保留
+新版配置/SQLite；上游迁移和新的指纹列没有承诺对旧版的直接读取兼容性。
 
 禁止以下做法：
 
@@ -173,8 +179,8 @@ curl -fsS http://127.0.0.1:12346/api/health
 
 当前 `manage.sh uninstall` 会拒绝 `--purge-data`，始终保留 bind 数据；这保证卸载后
 可以重新安装或回退。若维护者另行制定数据删除流程，必须先做离线备份，并且只能由
-人工确认本项目的 `deploy/runtime/`，不能指向 `/media/MP_movieDB`、`/media/CloudNas`、
-生产容器数据或宿主机宽泛目录。源媒体目录和远端文件不由卸载脚本删除。
+人工确认本项目的 `deploy/runtime/`，不能指向媒体源、FUSE 原件、生产容器数据或宿主机
+宽泛目录。源媒体目录和远端文件不由卸载脚本删除。
 
 ## 故障定位
 
@@ -198,3 +204,18 @@ docker logs kikoeru-strm-12346 2>&1 | rg '\[STRM\]\[(scan|duration)\]'
 
 检查日志时只保留错误码、相对文件名和耗时。Helper URL、CDN `Location`、query、
 认证头和密码不应进入日志、截图或工单。
+
+## 0.2.0 专有状态与原生响度
+
+新下载/指纹/错误/重试状态使用 `strm-state-v2.json`；旧配置的 `statePath` 被作为迁移源，
+旧 `strm-state.json` 保留。原生曲目表增加 nullable `pointer_fingerprint`，内容变化时清除
+时长、LUFS 和派生字段。仅内容指纹匹配的旧结果可以迁入，无法确认的旧结果重新探测。
+
+响度使用原生只读 `ebur128`，旧 `loudnorm` 配置自动归一化；新设置不提供算法切换。
+任务的 queued/running/done/failed 和 SSE 与原生注册表共享；下载阶段不伪造百分比。
+原生分析器尚未提供可取消的任务句柄，因此 HTTP result 的等待超时不等于终止 FFmpeg；
+任务可能继续运行并保存结果。完整媒体缓存可按 TTL/容量清理，原生 LUFS 不做条目数淘汰。
+
+已知运行环境注意事项：原生实例 12345 的媒体目录使用 FUSE 时，Parcel watcher 可能报
+`State not recoverable`。本次已仅对 12345 关闭 file watcher；手动扫描仍可用。独立 STRM 实例
+12346 的 watcher 保持启用。实际部署和当前迁移核验状态见[0.2.0 部署记录](DEPLOYMENT-0.2.0.md)。

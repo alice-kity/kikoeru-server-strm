@@ -1,11 +1,12 @@
 {
   "name": "kikoeru-strm-adapter",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "private": true,
-  "description": "Version-aware STRM playback overlay for number17/kikoeru 0.6.15",
+  "description": "Version-aware STRM playback overlay for number17/kikoeru 0.6.17",
   "scripts": {
     "test": "node --test tests/*.test.js",
-    "verify:upstream": "node scripts/verify-upstream.js tmp/kikoeru-container",
+    "verify:upstream": "node scripts/verify-upstream.js --version 0.6.17 tmp/upstream-0.6.17-review/usr/src/kikoeru",
+    "verify:upstream:0615": "node scripts/verify-upstream.js --version 0.6.15 tmp/upstream-image-inspection/latest-864cf8445ead0d27/rootfs/usr/src/kikoeru",
     "compose:config": "docker compose config"
   },
   "engines": {

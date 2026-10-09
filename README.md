@@ -1,27 +1,34 @@
 # Kikoeru STRM 播放适配器
 
-发布版本：`0.1.4`。这是一个面向 `number17/kikoeru` 应用 `0.6.15` 的
-版本化 Docker overlay：Kikoeru 扫描本地 STRM 指针，经过登录鉴权后由服务端
-向部署方配置的 Helper 发起一次 `HEAD`，再把客户端重定向到受控的 115 CDN。
-它不是 STRM 生成器，也不是通用 STRM 播放器。
+发布版本：`0.2.0`，目标为 `number17/kikoeru` `0.6.17-20261007`，锁定镜像
+`sha256:e78de6e4ac3eb8dbddffc84b31b3f10b809cb2baf3944fd3a5bfe0e5daa77391`。
+本地 STRM 指针进入原生曲目表，经过原生登录鉴权后，服务端向配置允许的 Helper
+发起 `HEAD`，只接受受控的 115 CDN 跳转。
 
-本版本跟进的是同一 `0.6.15` 应用版本的上游热更新 digest
-`sha256:864cf8445ead0d272ca69d449f0f47e4b6c413cc69392b996b70be8433f4c0e6`。
-重新审查确认只有上游 `filesystem/audioProcessor.js` 与 `routes/media.js` 的响度接口
-发生变化，适配器自己的 STRM 响度缓存和普通本地媒体 `next()` 路径不变，patch 仍位于
-`patches/0.6.15/`。这里记录的是镜像、指纹和接口审查，不声称已完成真实客户端或生产验证。
+此次适配复用原生 `t_track`、稳定 `seq`/曲目 hash、总时长查询、扫描队列与响度任务。
+物理路径保留 `.strm`，客户端显示媒体名称；时长和 LUFS 主要保存在原生 SQLite。
+插件继续负责指针/Helper/CDN 校验、限速、429 退避、UA 匹配、完整冷缓存及热播放 302。
+新版响度使用原生只读 ebur128 分析器，旧 `loudnorm` 方法配置归一化为 `ebur128`；
+新旧响度接口共享原生任务；STRM 波形和转码明确不支持，普通媒体能力保留。
+
+新版 overlay 位于 `patches/0.6.17/`；旧 `patches/0.6.15/` 与其指纹基线保留。
+数据库升级后回退需要恢复匹配的配置与 SQLite 备份，不能只换旧镜像。
+设计与验收命令见 [升级接入方案](docs/UPGRADE-0.6.17.md)，代码验收结果见
+[本地验收记录](docs/VALIDATION-0.6.17.md)，2026-10-09 业务实例升级另见
+[部署记录](docs/DEPLOYMENT-0.2.0.md)。
 
 安装和升级以 [`docs/OPERATIONS.md`](docs/OPERATIONS.md) 为准；上游边界和升级
 检查以 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) 为准。
 
 ## 适用范围
 
-- 适配器只扫描 `/media/MP_movieDB/NSFW/Voice1`；不扫描、不挂载
-  `/media/CloudNas` FUSE 原件目录。
+- 适配器只扫描 `KIKOERU_STRM_MEDIA_DIR` 指定的媒体目录；该目录只读挂载，FUSE
+  原件目录不应加入 Compose。
 - 适配器是独立实例，容器名为 `kikoeru-strm-12346`，宿主端口为 `12346`。
-  生产容器 `kikoeru` 的 `12345`、配置、数据库和运行状态不在本项目操作范围内。
+  日常插件运维只操作该实例；生产容器 `kikoeru` 的 `12345` 使用原生 Kikoeru，不通过本项目脚本管理。
+  只有单独明确授权时才升级其上游应用版本；2026-10-09 的授权部署记录见上文。
 - Helper 地址是部署配置的一部分，可以替换；不要把私人 Helper 地址、密码或 JWT
-  写进仓库、STRM 文件、日志或问题报告。
+  写进仓库、日志或问题报告。
 - Helper 的最终 `Location` 不是任意公网 URL：只接受主机名匹配受控后缀
   `.115cdn.net` 的绝对 HTTP(S) URL。最终 CDN 是固定边界，不能通过 STRM 内容绕过。
 
@@ -63,10 +70,10 @@ URL 发起 `HEAD`，Helper 必须返回 `300–399` 的 3xx 响应和绝对 `Loc
 chmod +x scripts/install.sh scripts/manage.sh
 read -r -p 'Helper host[:port] (keep private): ' STRM_HELPER_HOST
 ./scripts/install.sh \
-  --media /media/MP_movieDB/NSFW/Voice1 \
+  --media /srv/kikoeru-media \
   --helper "$STRM_HELPER_HOST" \
   --port 12346 \
-  --image kikoeru-strm:0.1.4
+  --image kikoeru-strm:0.2.0
 unset STRM_HELPER_HOST
 ```
 
@@ -120,15 +127,14 @@ STRM 设置已通过原生 Vue Router 子路由融入 Kikoeru Dashboard 的视�
 DashboardLayout 与 links 数组，因此切换到扫描、高级设置或其他菜单时由 Vue Router
 正常销毁/创建页面，不会留下双高亮或污染原页面状态。缓存容量按 GiB 展示，保存超过
 上限的配置时会显示明确提示。STRM 组件样式严格隔离且离开页面会回收注入资源；配置
-表单在桌面采用两列对齐、窄屏采用单列滑动开关布局。核心媒体扫描、缓存、响度和交付
-行为在本版本冻结。
+表单在桌面采用两列对齐、窄屏采用单列滑动开关布局。新版扫描、时长与响度接入原生数据库及任务接口。
 
 ```sh
-# 升级：保留旧镜像 tag 和数据，完成新版本验收后再清理旧 tag
+# 升级：默认构建本发布版本 tag；保留旧镜像和数据，完成验收后再清理
 ./scripts/manage.sh upgrade
 
-# 回退：切回已保留的旧适配器镜像/版本，不删除上述数据
-./scripts/manage.sh rollback --image kikoeru-strm:0.1.1
+# 回退前停止独立实例，并恢复升级前配套的配置/SQLite备份；再切换旧镜像
+./scripts/manage.sh rollback --image kikoeru-strm:0.1.4
 
 # 卸载独立实例：默认只移除容器/项目，不删除 deploy/runtime
 ./scripts/manage.sh uninstall
@@ -145,3 +151,15 @@ DashboardLayout 与 links 数组，因此切换到扫描、高级设置或其他
 和 [`docs/LICENSING.md`](docs/LICENSING.md) 记录本版本的边界、已知限制和许可状态。
 本仓库当前没有在未核实的情况下声明一个根目录许可证；上游镜像和依赖的许可通知
 仍须按各自发行物查看。
+
+## 旧状态迁移与验证边界
+
+首次扫描兼容旧 `rootFolder` 字符串及 `{name, path}` 对象格式，并按库名、作品物理路径/key
+和指针内容指纹匹配旧 `strm-state.json`；只迁入匹配成功的有效时长/LUFS，不复制旧状态
+中的私人 metadata，无法确认的结果等待重新探测。迁移可重复执行，旧文件保留。新版
+专有状态只承担指纹、下载缓存和错误/重试信息；完整媒体缓存仍按容量和 TTL 管理，
+SQLite 内的响度结果不按条目数量淘汰。
+
+部署后的实际条目数、镜像和原生数据库迁移检查见[部署记录](docs/DEPLOYMENT-0.2.0.md)。
+本地 fixture 验收不代表真实 115/CDN 或 iOS 验收；这些播放路径仍需真实客户端抽样验证
+跨域 302、UA、Range/seek 和长暂停恢复。
